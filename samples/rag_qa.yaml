@@ -1,0 +1,15 @@
+name: "RAG QA Example"
+version: "0.1"
+nodes:
+  - id: "search"
+    type: "rag_retrieve"
+    params:
+      collection: "kb"
+  - id: "qa"
+    type: "llm"
+    inputs: ["search.docs"]
+    params:
+      prompt: "Answer using docs: {{search.docs}}"
+edges:
+  - source: "search"
+    target: "qa"

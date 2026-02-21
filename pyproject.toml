@@ -1,0 +1,26 @@
+[project]
+name = "langpedia"
+version = "0.1.0"
+description = "All-in-one AI orchestration tool"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "pyyaml",
+    "typer",
+    "httpx",
+    "sqlalchemy",
+    "qdrant-client",
+    "openai",
+    "python-dotenv",
+]
+
+[project.scripts]
+langpedia = "cli.langpedia.main:app"
+
+[tool.setuptools]
+packages = ["backend", "cli", "shared", "cli.langpedia", "backend.app"]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
