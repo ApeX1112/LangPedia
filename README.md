@@ -14,8 +14,12 @@ All-in-one AI orchestration tool: agents + RAG + MCP tool access.
 ```bash
 pip install -e .
 langpedia init
-langpedia run samples/rag_qa.yaml
+langpedia run workflows/starter.yaml
 ```
+
+## 📖 Documentation
+Detailed guides for scaling your AI projects:
+- [Workflow Guide](docs/workflows_guide.md): Learn YAML syntax, data wiring, and project organization.
 
 ### Backend
 ```bash

@@ -8,6 +8,20 @@ from typing import Optional
 from pathlib import Path
 from rich import print 
 from rich.console import Console
+from rich.table import Table
+import json
+
+STATE_FILE = ".langpedia_state"
+
+def get_current_workflow():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, 'r') as f:
+            return json.load(f).get("current_workflow")
+    return None
+
+def set_current_workflow(path: str):
+    with open(STATE_FILE, 'w') as f:
+        json.dump({"current_workflow": path}, f)
 
 from rich.align import Align
 from rich.markup import escape
@@ -106,31 +120,39 @@ def init(name: str = typer.Argument("my-langpedia-project", help="The name of yo
     console.print("\n[bold green]Success![/bold green] Your Langpedia workspace is ready.")
     console.print("Next steps:")
     console.print("1. [dim]Rename .env.example to .env and add your keys.[/dim]")
-    console.print("2. [dim]Run your first workflow:[/dim] [bold yellow]langpedia run workflows/starter.yaml[/]")
+    console.print(f"2. [dim]Set active workflow:[/dim] [bold yellow]langpedia use workflows/{workflow_filename}[/]")
+    console.print(f"3. [dim]Run it:[/dim] [bold yellow]langpedia run[/]")
 
 @app.command()
 def run(
-    file: str,
+    file: Optional[str] = typer.Argument(None, help="The YAML file to run. If omitted, uses the 'connected' workflow."),
     input: str = typer.Option("{}", "--input", "-i", help="JSON input for the workflow"),
     remote: Optional[str] = typer.Option(None, "--remote", "-r", help="Remote server URL"),
     local: bool = typer.Option(True, "--local", "-l", help="Run locally (default)")
 ):
-    """Run a workflow from a YAML file."""
-    import json
+    """Run a workflow. Uses the 'connected' workflow if no file is specified."""
+    if file is None:
+        file = get_current_workflow()
+    
+    if file is None:
+        console.print("[red]Error:[/red] No workflow specified and no active workflow set. Use [bold]langpedia use <file>[/bold] first.")
+        raise typer.Exit(code=1)
+
+    if not os.path.exists(file):
+        console.print(f"[red]Error:[/red] Workflow file [bold]{file}[/bold] not found.")
+        raise typer.Exit(code=1)
+
     input_data = json.loads(input)
     
     if remote:
         typer.echo(f"Running workflow {file} remotely on {remote}...")
-        # TODO: Implement remote call
         async def run_remote():
             async with httpx.AsyncClient() as client:
-                # 1. Create/Upload workflow
                 with open(file, 'r') as f:
                     spec_data = yaml.safe_load(f)
                 resp = await client.post(f"{remote}/workflows/", json=spec_data)
                 workflow_id = resp.json().get("id")
                 
-                # 2. Run it
                 resp = await client.post(f"{remote}/runs/", params={"workflow_id": workflow_id}, json=input_data)
                 typer.echo(f"Run output: {resp.json().get('outputs')}")
         
@@ -146,6 +168,48 @@ def run(
         outputs = asyncio.run(runner.run(input_data))
         typer.echo(f"Execution successful!")
         typer.echo(f"Outputs: {outputs}")
+
+@app.command(name="list")
+def list_workflows():
+    """List all workflows in the project."""
+    workflow_dir = Path("workflows")
+    if not workflow_dir.exists():
+        console.print("[yellow]No workflows directory found. Run 'langpedia init' first.[/yellow]")
+        return
+
+    files = list(workflow_dir.glob("*.yaml"))
+    current = get_current_workflow()
+
+    table = Table(title="Available Workflows")
+    table.add_column("Status", justify="center")
+    table.add_column("Name")
+    table.add_column("File Path", style="dim")
+
+    for f in files:
+        is_current = str(f) == current
+        status = "[green]⭐[/green]" if is_current else ""
+        try:
+            with open(f, 'r') as wf:
+                data = yaml.safe_load(wf)
+                name = data.get("name", "Unnamed")
+        except:
+            name = "[red]Invalid YAML[/red]"
+        
+        table.add_row(status, name, str(f))
+
+    console.print(table)
+    if current:
+        console.print(f"\n[dim]Current active workflow:[/dim] [bold cyan]{current}[/bold cyan]")
+
+@app.command()
+def use(file: str):
+    """'Connect' to a workflow to set it as the default for other commands."""
+    if not os.path.exists(file):
+        console.print(f"[red]Error:[/red] File [bold]{file}[/bold] does not exist.")
+        raise typer.Exit(code=1)
+    
+    set_current_workflow(file)
+    console.print(f"[green]✔[/green] Now using [bold cyan]{file}[/bold cyan] as the default workflow.")
 
 @app.command()
 def rag_ingest(path: str):
