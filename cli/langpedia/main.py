@@ -6,13 +6,52 @@ import os
 import sys
 from typing import Optional
 from pathlib import Path
+from rich import print 
+from rich.console import Console
+
+from rich.align import Align
+from rich.markup import escape
+
+console = Console()
+
+# Using a more robust ASCII art style for terminal compatibility
+BANNER_ART = r"""
+   _                                       _ _       
+  | |                                     | (_)      
+  | |     __ _ _ __   __ _ _ __   ___   __| |_  __ _ 
+  | |    / _` | '_ \ / _` | '_ \ / _ \ / _` | |/ _` |
+  | |___| (_| | | | | (_| | |_) |  __/| (_| | | (_| |
+  |______\__,_|_| |_|\__, | .__/ \___| \__,_|_|\__,_|
+                      __/ | |                        
+                     |___/|_|                        
+"""
+
+SUBTITLE = "AI Orchestration • Agents • RAG • MCP • Workflows"
 
 # Fix imports for shared spec
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from shared.workflow import WorkflowSpec
 from backend.app.engine.runner import WorkflowRunner
 
-app = typer.Typer(help="Langpedia CLI - AI Orchestration Tool")
+app = typer.Typer(
+    help="Langpedia CLI - Advanced AI Orchestration Platform",
+    rich_markup_mode="rich"
+)
+
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context):
+    """
+    Langpedia CLI - Advanced AI Orchestration Platform.
+    Use --help to see available commands.
+    """
+    if ctx.invoked_subcommand is None:
+        # Render banner centered and escaped to prevent markup issues
+        console.print(Align.center(f"[bold cyan]{escape(BANNER_ART)}[/bold cyan]"))
+        console.print(Align.center(f"[italic blue]{SUBTITLE}[/italic blue]"))
+        console.print("\n")
+        console.print(Align.center("[dim]Version 0.1.0 • Local-first • Python-native[/dim]"))
+        console.print(Align.center("[bold]Type [green]langpedia --help[/green] for instructions[/bold]"))
+        console.print("\n")
 
 @app.command()
 def init():
