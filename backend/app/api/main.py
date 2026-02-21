@@ -8,11 +8,20 @@ from datetime import datetime
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from fastapi.middleware.cors import CORSMiddleware
 from backend.app.models.database import SessionLocal, init_db, Workflow, Run, Trace
 from backend.app.engine.runner import WorkflowRunner
 from shared.workflow import WorkflowSpec
 
 app = FastAPI(title="Langpedia API", version="0.1")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # For v0.1 MVP, allow all origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.on_event("startup")
 def on_startup():
@@ -43,6 +52,18 @@ async def create_workflow(workflow_spec: WorkflowSpec, db: Session = Depends(get
     db.add(db_workflow)
     db.commit()
     return {"id": workflow_id, "status": "created"}
+
+@app.get("/workflows/")
+async def list_workflows(db: Session = Depends(get_db)):
+    workflows = db.query(Workflow).all()
+    return workflows
+
+@app.get("/workflows/{workflow_id}")
+async def get_workflow(workflow_id: str, db: Session = Depends(get_db)):
+    workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
+    if not workflow:
+        return {"error": "Workflow not found"}
+    return workflow
 
 @app.post("/runs/")
 async def run_workflow(workflow_id: str, initial_input: Dict[str, Any], db: Session = Depends(get_db)):

@@ -54,13 +54,59 @@ def main(ctx: typer.Context):
         console.print("\n")
 
 @app.command()
-def init():
-    """Initialize a new Langpedia project."""
-    typer.echo("Initializing Langpedia project...")
-    Path("workflows").mkdir(exist_ok=True)
-    with open("langpedia.yaml", "w") as f:
-        f.write("project_name: my-langpedia-project\n")
-    typer.echo("Done.")
+def init(name: str = typer.Argument("my-langpedia-project", help="The name of your new project")):
+    """Initialize a professional Langpedia workspace."""
+    console.print(Align.center(f"[bold cyan]Initializing Langpedia Workspace: {name}...[/bold cyan]"))
+    
+    # 1. Create directory structure
+    dirs = ["workflows", "data", "mcp", "logs"]
+    for d in dirs:
+        Path(d).mkdir(exist_ok=True)
+        console.print(f"  [green]✔[/green] Created [bold]{d}/[/bold]")
+
+    # 2. Create starter workflow
+    workflow_filename = f"{name.lower().replace(' ', '_')}.yaml"
+    starter_wf = {
+        "name": name,
+        "version": "0.1",
+        "nodes": [
+            {
+                "id": "starter_node",
+                "type": "llm",
+                "params": {"prompt": f"Welcome to {name}!"}
+            }
+        ],
+        "edges": []
+    }
+    
+    workflow_path = Path("workflows") / workflow_filename
+    with open(workflow_path, "w") as f:
+        yaml.dump(starter_wf, f)
+    console.print(f"  [green]✔[/green] Created [bold]workflows/{workflow_filename}[/bold]")
+
+    # 3. Synchronize with UI/Backend if running
+    API_URL = "http://localhost:8000/workflows/"
+    try:
+        # We use a short timeout so we don't hang if the server isn't there
+        res = httpx.post(API_URL, json=starter_wf, timeout=2.0)
+        if res.status_code == 200:
+            console.print(f"  [green]✔[/green] Synchronized [bold]{name}[/bold] with Studio UI")
+    except Exception:
+        # Silently fail if server isn't running, this is just a convenience
+        console.print("  [yellow]![/yellow] [dim]Studio Backend not found. Run 'uvicorn' to sync later.[/dim]")
+
+    # 4. Create .env.example
+    with open(".env.example", "w") as f:
+        f.write("# Langpedia Environment Configuration\n")
+        f.write("OPENAI_API_KEY=your_key_here\n")
+        f.write("ANTHROPIC_API_KEY=your_key_here\n")
+        f.write("QDRANT_URL=http://localhost:6333\n")
+    console.print("  [green]✔[/green] Created [bold].env.example[/bold]")
+
+    console.print("\n[bold green]Success![/bold green] Your Langpedia workspace is ready.")
+    console.print("Next steps:")
+    console.print("1. [dim]Rename .env.example to .env and add your keys.[/dim]")
+    console.print("2. [dim]Run your first workflow:[/dim] [bold yellow]langpedia run workflows/starter.yaml[/]")
 
 @app.command()
 def run(

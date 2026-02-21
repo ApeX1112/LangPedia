@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pydantic
+pyyaml
+typer
+httpx
+sqlalchemy
+qdrant-client
+openai
+python-dotenv
+rich
