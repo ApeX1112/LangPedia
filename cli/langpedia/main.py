@@ -73,10 +73,13 @@ def init(name: str = typer.Argument("my-langpedia-project", help="The name of yo
     console.print(Align.center(f"[bold cyan]Initializing Langpedia Workspace: {name}...[/bold cyan]"))
     
     # 1. Create directory structure
-    dirs = ["workflows", "data", "mcp", "logs"]
+    dirs = ["workflows", "data", "mcp", "logs", "scripts"]
     for d in dirs:
         Path(d).mkdir(exist_ok=True)
         console.print(f"  [green]✔[/green] Created [bold]{d}/[/bold]")
+    
+    # Also create scripts/workflows/
+    (Path("scripts") / "workflows").mkdir(exist_ok=True)
 
     # 2. Create starter workflow
     workflow_filename = f"{name.lower().replace(' ', '_')}.yaml"
@@ -122,6 +125,94 @@ def init(name: str = typer.Argument("my-langpedia-project", help="The name of yo
     console.print("1. [dim]Rename .env.example to .env and add your keys.[/dim]")
     console.print(f"2. [dim]Set active workflow:[/dim] [bold yellow]langpedia use workflows/{workflow_filename}[/]")
     console.print(f"3. [dim]Run it:[/dim] [bold yellow]langpedia run[/]")
+
+@app.command()
+def generate_scripts(
+    node_id: Optional[str] = typer.Argument(None, help="The ID of the node to generate scripts for. If omitted, generates for all nodes."),
+    workflow_path: Optional[str] = typer.Argument(None, help="Path to the workflow YAML file. If omitted, uses the 'connected' workflow.")
+):
+    """Generate boilerplate scripts for nodes in a workflow."""
+    if workflow_path is None:
+        workflow_path = get_current_workflow()
+    
+    if workflow_path is None:
+        console.print("[red]Error:[/red] No workflow specified and no active workflow set. Use [bold]langpedia use <file>[/bold] first.")
+        raise typer.Exit(code=1)
+
+    if not os.path.exists(workflow_path):
+        console.print(f"[red]Error:[/red] Workflow file [bold]{workflow_path}[/bold] not found.")
+        raise typer.Exit(code=1)
+
+    try:
+        with open(workflow_path, 'r') as f:
+            data = yaml.safe_load(f)
+            workflow_name = data.get("name", Path(workflow_path).stem).lower().replace(" ", "_")
+            nodes = data.get("nodes", [])
+    except Exception as e:
+        console.print(f"[red]Error:[/red] Could not parse workflow file: {e}")
+        raise typer.Exit(code=1)
+
+    def generate_for_node(node):
+        nid = node.get("id")
+        ntype = node.get("type")
+        
+        if ntype == "rag_retrieve":
+            target_dir = Path("scripts") / "workflows" / workflow_name / "nodes" / nid
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            scripts_content = {
+                "extract.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Extractor(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Custom extraction logic."""\n        dataset_path = state.get("dataset_path")\n        ctx.emit("extract_start", {"path": dataset_path})\n        print(f"Extracting from {dataset_path}...")\n        return {"docs": ["Doc 1", "Doc 2"]}\n',
+                "vectorize.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Vectorizer(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Custom vectorization logic."""\n        docs = state.get("docs", [])\n        ctx.emit("vectorize_docs", {"count": len(docs)})\n        print(f"Vectorizing {len(docs)} documents...")\n        return state\n',
+                "store.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Searcher(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Custom search logic."""\n        query = state.get("query")\n        top_k = state.get("top_k", 5)\n        print(f"Searching for: {query} (top_k={top_k})")\n        return {"results": [f"Result for {query}"]}\n'
+            }
+
+            mappings = {}
+            for filename, content in scripts_content.items():
+                file_path = target_dir / filename
+                logical_name = filename.split(".")[0]
+                mappings[logical_name] = str(file_path)
+                
+                if not file_path.exists():
+                    with open(file_path, "w") as f:
+                        f.write(content)
+                    console.print(f"  [green]✔[/green] Created [bold]{file_path}[/bold]")
+            
+            console.print(f"  [green]✔[/green] Generated RAG scripts for node [bold]{nid}[/bold]")
+            return mappings
+        return None
+
+    yaml_updated = False
+    if node_id:
+        node = next((n for n in nodes if n.get("id") == node_id), None)
+        if not node:
+            console.print(f"[red]Error:[/red] Node [bold]{node_id}[/bold] not found in workflow.")
+            raise typer.Exit(code=1)
+        mappings = generate_for_node(node)
+        if mappings:
+            node["scripts"] = node.get("scripts", {})
+            node["scripts"].update(mappings)
+            yaml_updated = True
+    else:
+        console.print(f"[bold cyan]Generating scripts for all nodes in workflow: {workflow_name}...[/bold cyan]")
+        for node in nodes:
+            mappings = generate_for_node(node)
+            if mappings:
+                node["scripts"] = node.get("scripts", {})
+                node["scripts"].update(mappings)
+                yaml_updated = True
+
+    if yaml_updated:
+        try:
+            with open(workflow_path, 'w') as f:
+                yaml.dump(data, f, sort_keys=False)
+            console.print(f"\n[green]✔[/green] [bold]{workflow_path}[/bold] updated with script paths.")
+        except Exception as e:
+            console.print(f"[red]Error:[/red] Could not update workflow YAML: {e}")
+
+    if not yaml_updated:
+        console.print("[yellow]No supported nodes found for script generation.[/yellow]")
+    else:
+        console.print(f"\n[bold green]Success![/bold green] Script generation complete.")
 
 @app.command()
 def run(

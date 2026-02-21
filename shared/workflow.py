@@ -6,6 +6,7 @@ class NodeSpec(BaseModel):
     type: str
     inputs: List[str] = Field(default_factory=list)
     params: Dict[str, Any] = Field(default_factory=dict)
+    scripts: Dict[str, str] = Field(default_factory=dict) # Logical name -> file path
 
 class EdgeSpec(BaseModel):
     source: str
