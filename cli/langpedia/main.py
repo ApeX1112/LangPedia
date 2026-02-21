@@ -219,6 +219,34 @@ def rag_ingest(path: str):
     typer.echo("Ingestion complete (Mocked).")
 
 @app.command()
+def sync(remote: str = typer.Option("http://localhost:8000", "--remote", "-r", help="Remote server URL")):
+    """Synchronize all local workflows with the Studio backend."""
+    workflow_dir = Path("workflows")
+    if not workflow_dir.exists():
+        console.print("[yellow]No workflows directory found.[/yellow]")
+        return
+
+    files = list(workflow_dir.glob("*.yaml"))
+    console.print(f"Synchronizing [bold]{len(files)}[/bold] workflows with {remote}...")
+
+    async def do_sync():
+        async with httpx.AsyncClient() as client:
+            for f in files:
+                try:
+                    with open(f, 'r') as wf:
+                        spec_data = yaml.safe_load(wf)
+                    res = await client.post(f"{remote}/workflows/", json=spec_data)
+                    if res.status_code == 200:
+                        console.print(f"  [green]✔[/green] Synced [bold]{f.name}[/bold]")
+                    else:
+                        console.print(f"  [red]✘[/red] Failed to sync [bold]{f.name}[/bold]: {res.text}")
+                except Exception as e:
+                    console.print(f"  [red]✘[/red] Error syncing [bold]{f.name}[/bold]: {e}")
+
+    asyncio.run(do_sync())
+    console.print("\n[bold green]Synchronization complete![/bold green]")
+
+@app.command()
 def mcp_add(name: str, url: str):
     """Add an MCP server."""
     typer.echo(f"Adding MCP server {name} at {url}...")

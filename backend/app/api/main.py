@@ -53,13 +53,70 @@ async def create_workflow(workflow_spec: WorkflowSpec, db: Session = Depends(get
     db.commit()
     return {"id": workflow_id, "status": "created"}
 
+import yaml
+from pathlib import Path
+
+WORKFLOWS_DIR = Path("workflows")
+
 @app.get("/workflows/")
 async def list_workflows(db: Session = Depends(get_db)):
-    workflows = db.query(Workflow).all()
-    return workflows
+    # 1. Get from Filesystem (Source of truth for local)
+    results = []
+    seen_names = set()
+    
+    if WORKFLOWS_DIR.exists():
+        for f in WORKFLOWS_DIR.glob("*.yaml"):
+            try:
+                with open(f, 'r') as wf:
+                    data = yaml.safe_load(wf)
+                    name = data.get('name', f.name)
+                    # Derive edges for UI if missing
+                    if 'edges' not in data or not data['edges']:
+                        data['edges'] = []
+                        for node in data.get('nodes', []):
+                            for input_ref in node.get('inputs', []):
+                                source_id = input_ref.split(".")[0]
+                                if source_id != "input":
+                                    data['edges'].append({"source": source_id, "target": node['id']})
+                    
+                    results.append({
+                        "id": f"file:{f.name}",
+                        "name": f"{name} (Local)",
+                        "spec": data,
+                        "source": "file"
+                    })
+                    seen_names.add(name)
+            except Exception as e:
+                print(f"Error loading {f}: {e}")
+    
+    # 2. Get from Database (Only if not already seen in filesystem)
+    db_workflows = db.query(Workflow).all()
+    for w in db_workflows:
+        if w.name not in seen_names:
+            results.append({"id": w.id, "name": w.name, "spec": w.spec, "source": "db"})
+                
+    return results
 
 @app.get("/workflows/{workflow_id}")
 async def get_workflow(workflow_id: str, db: Session = Depends(get_db)):
+    # Check if it's a file-based workflow
+    if workflow_id.startswith("file:"):
+        filename = workflow_id.replace("file:", "")
+        path = WORKFLOWS_DIR / filename
+        if path.exists():
+            with open(path, 'r') as f:
+                data = yaml.safe_load(f)
+                # Ensure edges are present for UI
+                if 'edges' not in data or not data['edges']:
+                    data['edges'] = []
+                    for node in data.get('nodes', []):
+                        for input_ref in node.get('inputs', []):
+                            source_id = input_ref.split(".")[0]
+                            if source_id != "input":
+                                data['edges'].append({"source": source_id, "target": node['id']})
+                return {"id": workflow_id, "name": data.get("name"), "spec": data, "source": "file"}
+    
+    # Check database
     workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
     if not workflow:
         return {"error": "Workflow not found"}
@@ -67,11 +124,23 @@ async def get_workflow(workflow_id: str, db: Session = Depends(get_db)):
 
 @app.post("/runs/")
 async def run_workflow(workflow_id: str, initial_input: Dict[str, Any], db: Session = Depends(get_db)):
-    db_workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
-    if not db_workflow:
+    spec_data = None
+    
+    if workflow_id.startswith("file:"):
+        filename = workflow_id.replace("file:", "")
+        path = WORKFLOWS_DIR / filename
+        if path.exists():
+            with open(path, 'r') as f:
+                spec_data = yaml.safe_load(f)
+    else:
+        db_workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
+        if db_workflow:
+            spec_data = db_workflow.spec
+
+    if not spec_data:
         return {"error": "Workflow not found"}
     
-    spec = WorkflowSpec(**db_workflow.spec)
+    spec = WorkflowSpec(**spec_data)
     runner = WorkflowRunner(spec)
     
     run_id = str(uuid.uuid4())
