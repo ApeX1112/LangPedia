@@ -54,8 +54,8 @@ class TestWorkflowRunner:
         runner = WorkflowRunner(two_node_spec)
         await runner.run({"query": "test"})
 
-        started = [e for e in runner.events if e["status"] == "started"]
-        completed = [e for e in runner.events if e["status"] == "completed"]
+        started = [e for e in runner.events if e["type"] == "node_start"]
+        completed = [e for e in runner.events if e["type"] == "node_complete"]
         assert len(started) == 2
         assert len(completed) == 2
 

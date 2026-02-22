@@ -10,25 +10,29 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+from contextlib import asynccontextmanager
 
 from backend.app.engine.runner import WorkflowRunner
 from backend.app.models.database import Run, SessionLocal, Trace, Workflow, init_db
 from shared.workflow import WorkflowSpec
 
-app = FastAPI(title="Langpedia API", version="0.1")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Initialize the database
+    init_db()
+    yield
+    # Shutdown: No cleanup needed for now
+
+
+app = FastAPI(title="Langpedia API", version="0.1", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # For v0.1 MVP, allow all origins
     allow_credentials=True,
-    allow_methods=["*"],
     allow_headers=["*"],
+    allow_methods=["*"],
 )
-
-
-@app.on_event("startup")
-def on_startup():
-    init_db()
 
 
 def get_db():
@@ -47,7 +51,7 @@ async def root():
 @app.post("/workflows/")
 async def create_workflow(workflow_spec: WorkflowSpec, db: Session = Depends(get_db)):
     workflow_id = str(uuid.uuid4())
-    db_workflow = Workflow(id=workflow_id, name=workflow_spec.name, spec=workflow_spec.dict())
+    db_workflow = Workflow(id=workflow_id, name=workflow_spec.name, spec=workflow_spec.model_dump())
     db.add(db_workflow)
     db.commit()
     return {"id": workflow_id, "status": "created"}
