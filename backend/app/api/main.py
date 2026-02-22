@@ -1,6 +1,7 @@
 import os
 import sys
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -10,11 +11,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-from contextlib import asynccontextmanager
 
 from backend.app.engine.runner import WorkflowRunner
 from backend.app.models.database import Run, SessionLocal, Trace, Workflow, init_db
 from shared.workflow import WorkflowSpec
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
