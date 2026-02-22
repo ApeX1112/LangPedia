@@ -31,6 +31,11 @@ class NodeScript(ABC):
         """Main execution logic. Returns updated state."""
         pass
 
+    def log(self) -> str:
+        """Return a summary string for CLI display after this script runs.
+        Override in subclasses to provide meaningful status text."""
+        return ""
+
     def evaluate(
         self, ctx: NodeContext, before: dict[str, Any], after: dict[str, Any], config: dict[str, Any]
     ) -> dict[str, Any] | None:
@@ -46,14 +51,23 @@ class BaseNode(ABC):
         self.inputs = spec.inputs
         self.events = runner_events
         self.workflow_name = workflow_name
-        self.run_id = "pending_run"  # Should be passed from runner ideally
+        self.run_id = "pending_run"
+        self._runner_emit = None  # Injected by the runner
 
     def log(self, message: str, level: str = "info"):
-        """Emit a log event that can be seen in terminal and UI."""
-        print(f"[{self.id}] {message}")
+        """Emit a log event via the runner callback."""
+        if self._runner_emit:
+            self._runner_emit("node_log", {"node_id": self.id, "message": message, "level": level})
+        else:
+            print(f"[{self.id}] {message}")
         self.events.append(
             {"node_id": self.id, "status": "log", "message": message, "level": level, "timestamp": "..."}
         )
+
+    def emit_step(self, step: str, detail: str = ""):
+        """Emit a step progress event for the CLI to display."""
+        if self._runner_emit:
+            self._runner_emit("node_step", {"node_id": self.id, "step": step, "detail": detail})
 
     @abstractmethod
     async def execute(self, input_data: dict[str, Any]) -> dict[str, Any]:

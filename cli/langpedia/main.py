@@ -2,15 +2,20 @@ import asyncio
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import httpx
 import typer
 import yaml
 from rich.align import Align
-from rich.console import Console
+from rich.console import Console, Group
 from rich.markup import escape
+from rich.live import Live
+from rich.panel import Panel
+from rich.spinner import Spinner
 from rich.table import Table
+from rich.text import Text
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from backend.app.engine.runner import WorkflowRunner  # noqa: E402
@@ -254,16 +259,231 @@ def run(
 
         asyncio.run(run_remote())
     else:
-        typer.echo(f"Running workflow {file} locally...")
         with open(file) as f:
             spec_data = yaml.safe_load(f)
 
         spec = WorkflowSpec(**spec_data)
-        runner = WorkflowRunner(spec)
 
-        outputs = asyncio.run(runner.run(input_data))
-        typer.echo("Execution successful!")
-        typer.echo(f"Outputs: {outputs}")
+        # ─── State for the live display ───
+        display_state = {
+            "workflow_name": "",
+            "workflow_version": "",
+            "total_nodes": 0,
+            "input": input_data,
+            "nodes": [],          # list of node display dicts
+            "current_node": None,  # index of active node
+            "finished": False,
+            "elapsed": 0,
+            "success_count": 0,
+            "fail_count": 0,
+            "node_times": {},
+        }
+
+        def build_display():
+            """Build the entire Rich renderable from the current state."""
+            renderables = []
+
+            # ── Header Panel ──
+            header_text = Text()
+            header_text.append("🚀 ", style="bold")
+            header_text.append(display_state["workflow_name"], style="bold cyan")
+            header_text.append(f"  v{display_state['workflow_version']}", style="dim")
+            header_text.append(f"\n   Nodes: {display_state['total_nodes']}", style="white")
+            input_str = json.dumps(display_state["input"])
+            if len(input_str) > 50:
+                input_str = input_str[:47] + "..."
+            header_text.append(f"  │  Input: {input_str}", style="dim")
+
+            renderables.append(Panel(header_text, border_style="bright_blue", padding=(0, 1)))
+            renderables.append(Text(""))
+
+            # ── Node Panels ──
+            for i, node in enumerate(display_state["nodes"]):
+                node_title = Text()
+                status_icon = "✔" if node.get("done") else ("❌" if node.get("error") else "⏳")
+                icon_style = "green" if node.get("done") else ("red" if node.get("error") else "yellow")
+                node_title.append(f"  {status_icon} ", style=icon_style)
+                node_title.append(f"Node {node['index']}/{display_state['total_nodes']}", style="bold white")
+                node_title.append(f" ─ {node['node_id']}", style="bold cyan")
+
+                lines = []
+
+                # Type + description
+                type_line = Text()
+                type_line.append("  Type: ", style="dim")
+                type_line.append(node["node_type"], style="bold magenta")
+                if node.get("description"):
+                    type_line.append(f" ({node['description']})", style="italic dim")
+                lines.append(type_line)
+
+
+                # Step progress
+                if node.get("steps"):
+                    lines.append(Text(""))
+                    for step_name in node["steps"]:
+                        step_data = node.get("step_status", {}).get(step_name, {})
+                        step_state = step_data.get("state", "pending")
+                        detail = step_data.get("detail", "")
+
+                        step_line = Text()
+                        if step_state == "done":
+                            step_line.append("  ✔ ", style="green")
+                            step_line.append(step_name, style="bold green")
+                            if detail:
+                                step_line.append(f" ─ {detail}", style="dim green")
+                        elif step_state == "active":
+                            step_line.append("  ⏳ ", style="yellow")
+                            step_line.append(step_name, style="bold yellow")
+                            if detail:
+                                step_line.append(f" ─ {detail}", style="dim yellow")
+                        else:
+                            step_line.append("  ○ ", style="dim")
+                            step_line.append(step_name, style="dim")
+                        lines.append(step_line)
+
+                # Elapsed time for completed nodes
+                if node.get("done") and node.get("elapsed"):
+                    lines.append(Text(""))
+                    time_line = Text()
+                    time_line.append(f"  Completed in {node['elapsed']:.2f}s", style="dim green")
+                    lines.append(time_line)
+
+                # Active spinner
+                if node.get("active") and not node.get("done") and not node.get("error"):
+                    lines.append(Text(""))
+                    lines.append(Spinner("dots", text="  Running...", style="yellow"))
+
+                node_panel = Panel(
+                    Group(*lines),
+                    title=node_title,
+                    title_align="left",
+                    border_style="bright_blue" if node.get("active") else ("green" if node.get("done") else "dim"),
+                    padding=(0, 1),
+                )
+                renderables.append(node_panel)
+                renderables.append(Text(""))
+
+            # ── Footer / Summary ──
+            if display_state["finished"]:
+                ok = display_state["success_count"]
+                fail = display_state["fail_count"]
+                elapsed = display_state["elapsed"]
+
+                footer_text = Text()
+                footer_text.append("🏁 ", style="bold")
+                footer_text.append("Execution Complete", style="bold green" if fail == 0 else "bold red")
+                footer_text.append(f"\n   Total Time: {elapsed:.2f}s", style="white")
+                footer_text.append(f"  │  Nodes: {ok} OK", style="green")
+                if fail > 0:
+                    footer_text.append(f" │ {fail} Failed", style="red")
+
+                renderables.append(Panel(footer_text, border_style="green" if fail == 0 else "red", padding=(0, 1)))
+
+            return Group(*renderables)
+
+        def on_event(event_type: str, data: dict):
+            if event_type == "workflow_start":
+                display_state["workflow_name"] = data.get("name", "Workflow")
+                display_state["workflow_version"] = data.get("version", "0.1")
+                display_state["total_nodes"] = data.get("total_nodes", 0)
+
+            elif event_type == "node_start":
+                node_display = {
+                    "node_id": data["node_id"],
+                    "node_type": data.get("node_type", "unknown"),
+                    "index": data.get("node_index", 0),
+                    "description": data.get("description", ""),
+                    "steps": [],  # Populated dynamically by __steps__ event
+                    "step_status": {},
+                    "active": True,
+                    "done": False,
+                    "error": False,
+                    "elapsed": None,
+                }
+                display_state["nodes"].append(node_display)
+                display_state["current_node"] = len(display_state["nodes"]) - 1
+
+            elif event_type == "node_step":
+                idx = display_state.get("current_node")
+                if idx is not None and idx < len(display_state["nodes"]):
+                    node = display_state["nodes"][idx]
+                    step_name = data.get("step", "")
+                    detail = data.get("detail", "")
+
+                    # Handle __steps__ discovery event from the node
+                    if step_name == "__steps__":
+                        node["steps"] = [s for s in detail.split(",") if s]
+                        return
+
+                    # Add step if not yet known
+                    if step_name not in node["steps"]:
+                        node["steps"].append(step_name)
+
+                    # Update step status
+                    current_state = node["step_status"].get(step_name, {}).get("state", "pending")
+                    if current_state == "active":
+                        # Second call = done
+                        node["step_status"][step_name] = {"state": "done", "detail": detail}
+                    else:
+                        # First call = active
+                        node["step_status"][step_name] = {"state": "active", "detail": detail}
+
+            elif event_type == "node_complete":
+                idx = display_state.get("current_node")
+                if idx is not None and idx < len(display_state["nodes"]):
+                    node = display_state["nodes"][idx]
+                    node["active"] = False
+                    node["done"] = True
+                    node["elapsed"] = data.get("elapsed", 0)
+                    # Mark all remaining steps as done
+                    for s in node["steps"]:
+                        if s not in node["step_status"] or node["step_status"][s]["state"] != "done":
+                            node["step_status"][s] = {"state": "done", "detail": node["step_status"].get(s, {}).get("detail", "")}
+                    display_state["success_count"] += 1
+
+            elif event_type == "node_error":
+                idx = display_state.get("current_node")
+                if idx is not None and idx < len(display_state["nodes"]):
+                    node = display_state["nodes"][idx]
+                    node["active"] = False
+                    node["error"] = True
+                    display_state["fail_count"] += 1
+
+            elif event_type == "workflow_end":
+                display_state["finished"] = True
+                display_state["elapsed"] = data.get("elapsed", 0)
+
+        runner = WorkflowRunner(spec, on_event=on_event)
+
+        with Live(build_display(), console=console, refresh_per_second=8, transient=False) as live:
+            async def run_with_live():
+                outputs = await runner.run(input_data)
+                return outputs
+
+            import threading
+            result_holder = [None]
+            error_holder = [None]
+
+            def run_in_thread():
+                try:
+                    result_holder[0] = asyncio.run(run_with_live())
+                except Exception as e:
+                    error_holder[0] = e
+
+            t = threading.Thread(target=run_in_thread)
+            t.start()
+
+            while t.is_alive():
+                live.update(build_display())
+                time.sleep(0.1)
+            t.join()
+
+            # Final render
+            live.update(build_display())
+
+        if error_holder[0]:
+            console.print(f"\n[red]Error during execution:[/red] {error_holder[0]}")
+            raise typer.Exit(code=1)
 
 
 @app.command(name="list")

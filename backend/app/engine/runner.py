@@ -1,44 +1,69 @@
 import asyncio
+import time
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable
 
 from shared.workflow import NodeSpec, WorkflowSpec
 
-from .nodes.registry import NODE_REGISTRY
+from .nodes.registry import NODE_REGISTRY, NODE_INFO
 
 
 class WorkflowRunner:
-    def __init__(self, spec: WorkflowSpec):
+    def __init__(self, spec: WorkflowSpec, on_event: Callable | None = None):
         self.spec = spec
         self.node_outputs: dict[str, Any] = {}
         self.events: list[dict[str, Any]] = []
-        # Try to derive a clean name from the workflow spec
         self.workflow_name = spec.name.lower().replace(" ", "_")
+        self.on_event = on_event or self._default_event_handler
 
-    def log_event(self, node_id: str, status: str, payload: dict[str, Any] = None):
+    def _default_event_handler(self, event_type: str, data: dict[str, Any]):
+        """Fallback handler when no CLI callback is provided."""
+        if event_type == "workflow_start":
+            print(f"\n🚀 Starting Workflow Execution: {data['name']}")
+        elif event_type == "node_start":
+            print(f"--- Executing: {data['node_id']} ---")
+        elif event_type == "node_log":
+            print(f"[{data['node_id']}] {data['message']}")
+        elif event_type == "node_step":
+            print(f"  → {data['step']}: {data.get('detail', '')}")
+        elif event_type == "node_complete":
+            elapsed = data.get("elapsed", 0)
+            print(f"--- Completed: {data['node_id']} ({elapsed:.2f}s) ---")
+        elif event_type == "node_error":
+            print(f"❌ Error in {data['node_id']}: {data['error']}")
+        elif event_type == "workflow_end":
+            print(f"🏁 Workflow Finished: {data['name']} ({data['elapsed']:.2f}s)\n")
+
+    def emit(self, event_type: str, data: dict[str, Any]):
+        """Emit an event to the callback and store it."""
         event = {
-            "node_id": node_id,
-            "status": status,
+            "type": event_type,
             "timestamp": datetime.now().isoformat(),
-            "payload": payload or {},
+            **data,
         }
         self.events.append(event)
+        self.on_event(event_type, data)
 
-        # Immediate terminal output for "live" feel
-        if status == "started":
-            print(f"--- Executing: {node_id} ---")
-        elif status == "completed":
-            print(f"--- Completed: {node_id} ---")
-        elif status == "log":
-            # Logs from within the node are handled by the node's log() method calling this indirectly
-            pass
+    def log_event(self, node_id: str, status: str, payload: dict[str, Any] = None):
+        """Legacy log_event for backward compatibility with BaseNode.log()."""
+        if status == "log":
+            self.emit("node_log", {"node_id": node_id, "message": payload.get("message", ""), **(payload or {})})
 
     async def run(self, initial_input: dict[str, Any]):
         self.node_outputs["input"] = initial_input
-        print(f"\n🚀 Starting Workflow Execution: {self.spec.name}")
+        total_nodes = len(self.spec.nodes)
+        wf_start = time.time()
+
+        self.emit("workflow_start", {
+            "name": self.spec.name,
+            "version": self.spec.version,
+            "total_nodes": total_nodes,
+            "input": initial_input,
+        })
 
         executed_nodes = set()
         to_execute = list(self.spec.nodes)
+        node_index = 0
 
         while to_execute:
             made_progress = False
@@ -51,21 +76,46 @@ class WorkflowRunner:
                         break
 
                 if can_run:
+                    node_index += 1
+                    node_info = NODE_INFO.get(node.type, {})
+                    self.emit("node_start", {
+                        "node_id": node.id,
+                        "node_type": node.type,
+                        "node_index": node_index,
+                        "total_nodes": total_nodes,
+                        "description": node_info.get("description", node.type),
+                    })
+
+                    node_start = time.time()
                     await self.execute_node(node)
+                    elapsed = time.time() - node_start
+
+                    output = self.node_outputs.get(node.id, {})
+                    has_error = "error" in output
+
+                    if has_error:
+                        self.emit("node_error", {"node_id": node.id, "error": str(output.get("error"))})
+                    else:
+                        self.emit("node_complete", {"node_id": node.id, "elapsed": elapsed, "output_keys": list(output.keys()) if isinstance(output, dict) else []})
+
                     executed_nodes.add(node.id)
                     to_execute.remove(node)
                     made_progress = True
 
             if not made_progress and to_execute:
-                print(f"❌ Deadlock detected: Cannot execute remaining nodes: {[n.id for n in to_execute]}")
+                self.emit("node_error", {"node_id": "deadlock", "error": f"Cannot execute: {[n.id for n in to_execute]}"})
                 break
 
-        print(f"🏁 Workflow Finished: {self.spec.name}\n")
+        wf_elapsed = time.time() - wf_start
+        self.emit("workflow_end", {
+            "name": self.spec.name,
+            "elapsed": wf_elapsed,
+            "total_executed": len(executed_nodes),
+            "total_nodes": total_nodes,
+        })
         return self.node_outputs
 
     async def execute_node(self, node: NodeSpec):
-        self.log_event(node.id, "started")
-
         # Prepare inputs for the node
         input_data = {}
         for input_ref in node.inputs:
@@ -77,22 +127,19 @@ class WorkflowRunner:
             if field:
                 input_data[field] = source_output.get(field)
             else:
-                # Merge if no field specified (or just provide whole output)
                 input_data.update(source_output if isinstance(source_output, dict) else {"data": source_output})
 
         try:
             if node.type in NODE_REGISTRY:
                 node_instance = NODE_REGISTRY[node.type](node, self.events, self.workflow_name)
+                # Inject the runner's emit function so nodes can emit step events
+                node_instance._runner_emit = self.emit
                 output = await node_instance.execute(input_data)
             else:
-                # Fallback for generic/placeholder nodes
-                print(f"Warning: No implementation for node type '{node.type}', using placeholder.")
+                self.emit("node_log", {"node_id": node.id, "message": f"No implementation for '{node.type}', using placeholder."})
                 await asyncio.sleep(0.5)
                 output = {"status": "success", "message": f"Placeholder output for {node.id}"}
         except Exception as e:
-            print(f"Error executing node {node.id}: {e}")
             output = {"error": str(e)}
-            self.log_event(node.id, "failed", {"error": str(e)})
 
         self.node_outputs[node.id] = output
-        self.log_event(node.id, "completed", {"output": output})
