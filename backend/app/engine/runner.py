@@ -1,11 +1,12 @@
 import asyncio
 import time
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 from shared.workflow import NodeSpec, WorkflowSpec
 
-from .nodes.registry import NODE_REGISTRY, NODE_INFO
+from .nodes.registry import NODE_INFO, NODE_REGISTRY
 
 
 class WorkflowRunner:

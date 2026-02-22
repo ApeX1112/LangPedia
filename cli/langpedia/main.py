@@ -10,8 +10,8 @@ import typer
 import yaml
 from rich.align import Align
 from rich.console import Console, Group
-from rich.markup import escape
 from rich.live import Live
+from rich.markup import escape
 from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.table import Table
