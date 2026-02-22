@@ -1,14 +1,13 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import {
     ReactFlow,
-    useNodesState,
-    useEdgesState,
-    addEdge,
     Connection,
     Edge,
     Node,
+    OnNodesChange,
+    OnEdgesChange,
     Background,
     Controls,
 } from '@xyflow/react';
@@ -17,8 +16,8 @@ import '@xyflow/react/dist/style.css';
 interface WorkflowCanvasProps {
     nodes: Node[];
     edges: Edge[];
-    onNodesChange: (changes: any) => void;
-    onEdgesChange: (changes: any) => void;
+    onNodesChange: OnNodesChange<Node>;
+    onEdgesChange: OnEdgesChange<Edge>;
     onConnect: (params: Connection | Edge) => void;
 }
 

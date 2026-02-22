@@ -1,56 +1,55 @@
-import typer
-import yaml
-import httpx
 import asyncio
+import json
 import os
 import sys
-from typing import Optional
 from pathlib import Path
-from rich import print 
+
+import httpx
+import typer
+import yaml
+from rich.align import Align
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
-import json
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+from backend.app.engine.runner import WorkflowRunner  # noqa: E402
+from shared.workflow import WorkflowSpec  # noqa: E402
 
 STATE_FILE = ".langpedia_state"
 
+
 def get_current_workflow():
     if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, 'r') as f:
+        with open(STATE_FILE) as f:
             return json.load(f).get("current_workflow")
     return None
 
+
 def set_current_workflow(path: str):
-    with open(STATE_FILE, 'w') as f:
+    with open(STATE_FILE, "w") as f:
         json.dump({"current_workflow": path}, f)
 
-from rich.align import Align
-from rich.markup import escape
 
 console = Console()
 
 # Using a more robust ASCII art style for terminal compatibility
 BANNER_ART = r"""
-   _                                       _ _       
-  | |                                     | (_)      
-  | |     __ _ _ __   __ _ _ __   ___   __| |_  __ _ 
+   _                                       _ _
+  | |                                     | (_)
+  | |     __ _ _ __   __ _ _ __   ___   __| |_  __ _
   | |    / _` | '_ \ / _` | '_ \ / _ \ / _` | |/ _` |
   | |___| (_| | | | | (_| | |_) |  __/| (_| | | (_| |
   |______\__,_|_| |_|\__, | .__/ \___| \__,_|_|\__,_|
-                      __/ | |                        
-                     |___/|_|                        
+                       __/ | |
+                      |___/|_|
 """
 
 SUBTITLE = "AI Orchestration • Agents • RAG • MCP • Workflows"
 
-# Fix imports for shared spec
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from shared.workflow import WorkflowSpec
-from backend.app.engine.runner import WorkflowRunner
 
-app = typer.Typer(
-    help="Langpedia CLI - Advanced AI Orchestration Platform",
-    rich_markup_mode="rich"
-)
+app = typer.Typer(help="Langpedia CLI - Advanced AI Orchestration Platform", rich_markup_mode="rich")
+
 
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context):
@@ -67,17 +66,18 @@ def main(ctx: typer.Context):
         console.print(Align.center("[bold]Type [green]langpedia --help[/green] for instructions[/bold]"))
         console.print("\n")
 
+
 @app.command()
 def init(name: str = typer.Argument("my-langpedia-project", help="The name of your new project")):
     """Initialize a professional Langpedia workspace."""
     console.print(Align.center(f"[bold cyan]Initializing Langpedia Workspace: {name}...[/bold cyan]"))
-    
+
     # 1. Create directory structure
     dirs = ["workflows", "data", "mcp", "logs", "scripts"]
     for d in dirs:
         Path(d).mkdir(exist_ok=True)
         console.print(f"  [green]✔[/green] Created [bold]{d}/[/bold]")
-    
+
     # Also create scripts/workflows/
     (Path("scripts") / "workflows").mkdir(exist_ok=True)
 
@@ -86,16 +86,10 @@ def init(name: str = typer.Argument("my-langpedia-project", help="The name of yo
     starter_wf = {
         "name": name,
         "version": "0.1",
-        "nodes": [
-            {
-                "id": "starter_node",
-                "type": "llm",
-                "params": {"prompt": f"Welcome to {name}!"}
-            }
-        ],
-        "edges": []
+        "nodes": [{"id": "starter_node", "type": "llm", "params": {"prompt": f"Welcome to {name}!"}}],
+        "edges": [],
     }
-    
+
     workflow_path = Path("workflows") / workflow_filename
     with open(workflow_path, "w") as f:
         yaml.dump(starter_wf, f)
@@ -124,19 +118,26 @@ def init(name: str = typer.Argument("my-langpedia-project", help="The name of yo
     console.print("Next steps:")
     console.print("1. [dim]Rename .env.example to .env and add your keys.[/dim]")
     console.print(f"2. [dim]Set active workflow:[/dim] [bold yellow]langpedia use workflows/{workflow_filename}[/]")
-    console.print(f"3. [dim]Run it:[/dim] [bold yellow]langpedia run[/]")
+    console.print("3. [dim]Run it:[/dim] [bold yellow]langpedia run[/]")
+
 
 @app.command()
 def generate_scripts(
-    node_id: Optional[str] = typer.Argument(None, help="The ID of the node to generate scripts for. If omitted, generates for all nodes."),
-    workflow_path: Optional[str] = typer.Argument(None, help="Path to the workflow YAML file. If omitted, uses the 'connected' workflow.")
+    node_id: str | None = typer.Argument(
+        None, help="The ID of the node to generate scripts for. If omitted, generates for all nodes."
+    ),
+    workflow_path: str | None = typer.Argument(
+        None, help="Path to the workflow YAML file. If omitted, uses the 'connected' workflow."
+    ),
 ):
     """Generate boilerplate scripts for nodes in a workflow."""
     if workflow_path is None:
         workflow_path = get_current_workflow()
-    
+
     if workflow_path is None:
-        console.print("[red]Error:[/red] No workflow specified and no active workflow set. Use [bold]langpedia use <file>[/bold] first.")
+        console.print(
+            "[red]Error:[/red] No workflow specified and no active workflow set. Use [bold]langpedia use <file>[/bold] first."
+        )
         raise typer.Exit(code=1)
 
     if not os.path.exists(workflow_path):
@@ -144,7 +145,7 @@ def generate_scripts(
         raise typer.Exit(code=1)
 
     try:
-        with open(workflow_path, 'r') as f:
+        with open(workflow_path) as f:
             data = yaml.safe_load(f)
             workflow_name = data.get("name", Path(workflow_path).stem).lower().replace(" ", "_")
             nodes = data.get("nodes", [])
@@ -155,7 +156,7 @@ def generate_scripts(
     def generate_for_node(node):
         nid = node.get("id")
         ntype = node.get("type")
-        
+
         if ntype == "rag_retrieve":
             target_dir = Path("scripts") / "workflows" / workflow_name / "nodes" / nid
             target_dir.mkdir(parents=True, exist_ok=True)
@@ -163,7 +164,7 @@ def generate_scripts(
             scripts_content = {
                 "extract.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Extractor(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Custom extraction logic."""\n        dataset_path = state.get("dataset_path")\n        ctx.emit("extract_start", {"path": dataset_path})\n        print(f"Extracting from {dataset_path}...")\n        return {"docs": ["Doc 1", "Doc 2"]}\n',
                 "vectorize.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Vectorizer(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Custom vectorization logic."""\n        docs = state.get("docs", [])\n        ctx.emit("vectorize_docs", {"count": len(docs)})\n        print(f"Vectorizing {len(docs)} documents...")\n        return state\n',
-                "store.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Searcher(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Custom search logic."""\n        query = state.get("query")\n        top_k = state.get("top_k", 5)\n        print(f"Searching for: {query} (top_k={top_k})")\n        return {"results": [f"Result for {query}"]}\n'
+                "store.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Searcher(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Custom search logic."""\n        query = state.get("query")\n        top_k = state.get("top_k", 5)\n        print(f"Searching for: {query} (top_k={top_k})")\n        return {"results": [f"Result for {query}"]}\n',
             }
 
             mappings = {}
@@ -171,12 +172,12 @@ def generate_scripts(
                 file_path = target_dir / filename
                 logical_name = filename.split(".")[0]
                 mappings[logical_name] = str(file_path)
-                
+
                 if not file_path.exists():
                     with open(file_path, "w") as f:
                         f.write(content)
                     console.print(f"  [green]✔[/green] Created [bold]{file_path}[/bold]")
-            
+
             console.print(f"  [green]✔[/green] Generated RAG scripts for node [bold]{nid}[/bold]")
             return mappings
         return None
@@ -203,7 +204,7 @@ def generate_scripts(
 
     if yaml_updated:
         try:
-            with open(workflow_path, 'w') as f:
+            with open(workflow_path, "w") as f:
                 yaml.dump(data, f, sort_keys=False)
             console.print(f"\n[green]✔[/green] [bold]{workflow_path}[/bold] updated with script paths.")
         except Exception as e:
@@ -212,21 +213,24 @@ def generate_scripts(
     if not yaml_updated:
         console.print("[yellow]No supported nodes found for script generation.[/yellow]")
     else:
-        console.print(f"\n[bold green]Success![/bold green] Script generation complete.")
+        console.print("\n[bold green]Success![/bold green] Script generation complete.")
+
 
 @app.command()
 def run(
-    file: Optional[str] = typer.Argument(None, help="The YAML file to run. If omitted, uses the 'connected' workflow."),
+    file: str | None = typer.Argument(None, help="The YAML file to run. If omitted, uses the 'connected' workflow."),
     input: str = typer.Option("{}", "--input", "-i", help="JSON input for the workflow"),
-    remote: Optional[str] = typer.Option(None, "--remote", "-r", help="Remote server URL"),
-    local: bool = typer.Option(True, "--local", "-l", help="Run locally (default)")
+    remote: str | None = typer.Option(None, "--remote", "-r", help="Remote server URL"),
+    local: bool = typer.Option(True, "--local", "-l", help="Run locally (default)"),
 ):
     """Run a workflow. Uses the 'connected' workflow if no file is specified."""
     if file is None:
         file = get_current_workflow()
-    
+
     if file is None:
-        console.print("[red]Error:[/red] No workflow specified and no active workflow set. Use [bold]langpedia use <file>[/bold] first.")
+        console.print(
+            "[red]Error:[/red] No workflow specified and no active workflow set. Use [bold]langpedia use <file>[/bold] first."
+        )
         raise typer.Exit(code=1)
 
     if not os.path.exists(file):
@@ -234,31 +238,33 @@ def run(
         raise typer.Exit(code=1)
 
     input_data = json.loads(input)
-    
+
     if remote:
         typer.echo(f"Running workflow {file} remotely on {remote}...")
+
         async def run_remote():
             async with httpx.AsyncClient() as client:
-                with open(file, 'r') as f:
+                with open(file) as f:
                     spec_data = yaml.safe_load(f)
                 resp = await client.post(f"{remote}/workflows/", json=spec_data)
                 workflow_id = resp.json().get("id")
-                
+
                 resp = await client.post(f"{remote}/runs/", params={"workflow_id": workflow_id}, json=input_data)
                 typer.echo(f"Run output: {resp.json().get('outputs')}")
-        
+
         asyncio.run(run_remote())
     else:
         typer.echo(f"Running workflow {file} locally...")
-        with open(file, 'r') as f:
+        with open(file) as f:
             spec_data = yaml.safe_load(f)
-        
+
         spec = WorkflowSpec(**spec_data)
         runner = WorkflowRunner(spec)
-        
+
         outputs = asyncio.run(runner.run(input_data))
-        typer.echo(f"Execution successful!")
+        typer.echo("Execution successful!")
         typer.echo(f"Outputs: {outputs}")
+
 
 @app.command(name="list")
 def list_workflows():
@@ -280,17 +286,18 @@ def list_workflows():
         is_current = str(f) == current
         status = "[green]⭐[/green]" if is_current else ""
         try:
-            with open(f, 'r') as wf:
+            with open(f) as wf:
                 data = yaml.safe_load(wf)
                 name = data.get("name", "Unnamed")
-        except:
+        except Exception:
             name = "[red]Invalid YAML[/red]"
-        
+
         table.add_row(status, name, str(f))
 
     console.print(table)
     if current:
         console.print(f"\n[dim]Current active workflow:[/dim] [bold cyan]{current}[/bold cyan]")
+
 
 @app.command()
 def use(file: str):
@@ -298,9 +305,10 @@ def use(file: str):
     if not os.path.exists(file):
         console.print(f"[red]Error:[/red] File [bold]{file}[/bold] does not exist.")
         raise typer.Exit(code=1)
-    
+
     set_current_workflow(file)
     console.print(f"[green]✔[/green] Now using [bold cyan]{file}[/bold cyan] as the default workflow.")
+
 
 @app.command()
 def rag_ingest(path: str):
@@ -308,6 +316,7 @@ def rag_ingest(path: str):
     typer.echo(f"Ingesting documents from {path}...")
     # Mock for v0.1
     typer.echo("Ingestion complete (Mocked).")
+
 
 @app.command()
 def sync(remote: str = typer.Option("http://localhost:8000", "--remote", "-r", help="Remote server URL")):
@@ -324,7 +333,7 @@ def sync(remote: str = typer.Option("http://localhost:8000", "--remote", "-r", h
         async with httpx.AsyncClient() as client:
             for f in files:
                 try:
-                    with open(f, 'r') as wf:
+                    with open(f) as wf:
                         spec_data = yaml.safe_load(wf)
                     res = await client.post(f"{remote}/workflows/", json=spec_data)
                     if res.status_code == 200:
@@ -337,12 +346,14 @@ def sync(remote: str = typer.Option("http://localhost:8000", "--remote", "-r", h
     asyncio.run(do_sync())
     console.print("\n[bold green]Synchronization complete![/bold green]")
 
+
 @app.command()
 def mcp_add(name: str, url: str):
     """Add an MCP server."""
     typer.echo(f"Adding MCP server {name} at {url}...")
     # Mock for v0.1
     typer.echo("MCP server added (Mocked).")
+
 
 if __name__ == "__main__":
     app()

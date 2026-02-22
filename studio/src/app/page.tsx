@@ -1,40 +1,49 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import WorkflowCanvas from '@/components/WorkflowCanvas';
 import { Play, Save, Plus, Database, Activity, Layout } from 'lucide-react';
 import axios from 'axios';
 import { useNodesState, useEdgesState, addEdge, Connection, Edge, Node } from '@xyflow/react';
 
+interface WorkflowNodeSpec {
+  id: string;
+  type: string;
+  inputs?: string[];
+  params?: Record<string, unknown>;
+}
+
+interface WorkflowEdgeSpec {
+  source: string;
+  target: string;
+}
+
+interface WorkflowSpec {
+  name: string;
+  version: string;
+  nodes: WorkflowNodeSpec[];
+  edges: WorkflowEdgeSpec[];
+}
+
+interface WorkflowItem {
+  id: string;
+  name: string;
+  spec: WorkflowSpec;
+  source: string;
+}
+
 const API_BASE = 'http://localhost:8000';
 
 export default function Home() {
-  const [workflows, setWorkflows] = useState<any[]>([]);
+  const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
   const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null);
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
-  useEffect(() => {
-    fetchWorkflows();
-  }, []);
-
-  const fetchWorkflows = async () => {
-    try {
-      const res = await axios.get(`${API_BASE}/workflows/`);
-      setWorkflows(res.data);
-      if (res.data.length > 0 && !activeWorkflowId) {
-        loadWorkflow(res.data[0]);
-      }
-    } catch (e) {
-      console.error("Failed to fetch workflows", e);
-    }
-  };
-
-  const loadWorkflow = (wf: any) => {
+  const loadWorkflow = useCallback((wf: WorkflowItem) => {
     setActiveWorkflowId(wf.id);
     const spec = wf.spec;
-    // Map Spec to Nodes/Edges for React Flow
-    const newNodes: Node[] = spec.nodes.map((n: any, i: number) => ({
+    const newNodes: Node[] = spec.nodes.map((n: WorkflowNodeSpec, i: number) => ({
       id: n.id,
       position: { x: 100, y: 100 + i * 150 },
       data: { label: `${n.id} (${n.type})` },
@@ -42,12 +51,36 @@ export default function Home() {
     }));
     setNodes(newNodes);
 
-    const newEdges: Edge[] = spec.edges.map((e: any) => ({
+    const newEdges: Edge[] = spec.edges.map((e: WorkflowEdgeSpec) => ({
       id: `e-${e.source}-${e.target}`,
       source: e.source,
       target: e.target
     }));
     setEdges(newEdges);
+  }, [setNodes, setEdges]);
+
+  useEffect(() => {
+    const initWorkflows = async () => {
+      try {
+        const res = await axios.get(`${API_BASE}/workflows/`);
+        setWorkflows(res.data);
+        if (res.data.length > 0) {
+          loadWorkflow(res.data[0]);
+        }
+      } catch (err) {
+        console.error("Failed to fetch workflows", err);
+      }
+    };
+    initWorkflows();
+  }, [loadWorkflow]);
+
+  const fetchWorkflows = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/workflows/`);
+      setWorkflows(res.data);
+    } catch (err) {
+      console.error("Failed to fetch workflows", err);
+    }
   };
 
   const onConnect = useCallback(
@@ -66,7 +99,7 @@ export default function Home() {
       await axios.post(`${API_BASE}/workflows/`, spec);
       fetchWorkflows();
       alert("Workflow saved to backend!");
-    } catch (e) {
+    } catch {
       alert("Save failed. Make sure backend is running.");
     }
   };
@@ -79,7 +112,7 @@ export default function Home() {
         initial_input: { text: "Hello from UI" }
       });
       alert(`Run started! ID: ${res.data.run_id}`);
-    } catch (e) {
+    } catch {
       alert("Run failed.");
     }
   };
@@ -114,7 +147,7 @@ export default function Home() {
           <section className="mb-8">
             <h2 className="text-xs font-semibold mb-4 uppercase text-slate-400 tracking-wider">Active Workflows</h2>
             <div className="space-y-1">
-              {workflows.map(wf => (
+              {workflows.map((wf: WorkflowItem) => (
                 <button
                   key={wf.id}
                   onClick={() => loadWorkflow(wf)}

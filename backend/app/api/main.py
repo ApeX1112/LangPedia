@@ -1,31 +1,35 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
-import uuid
-from datetime import datetime
-
-# Import shared spec
-import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+import sys
+import uuid
+from pathlib import Path
+from typing import Any
+
+import yaml
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from backend.app.models.database import SessionLocal, init_db, Workflow, Run, Trace
+from sqlalchemy.orm import Session
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
 from backend.app.engine.runner import WorkflowRunner
+from backend.app.models.database import Run, SessionLocal, Trace, Workflow, init_db
 from shared.workflow import WorkflowSpec
 
 app = FastAPI(title="Langpedia API", version="0.1")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # For v0.1 MVP, allow all origins
+    allow_origins=["*"],  # For v0.1 MVP, allow all origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
 @app.on_event("startup")
 def on_startup():
     init_db()
+
 
 def get_db():
     db = SessionLocal()
@@ -34,68 +38,58 @@ def get_db():
     finally:
         db.close()
 
-from fastapi import Depends
-from sqlalchemy.orm import Session
 
 @app.get("/")
 async def root():
     return {"message": "Welcome to Langpedia API v0.1"}
 
+
 @app.post("/workflows/")
 async def create_workflow(workflow_spec: WorkflowSpec, db: Session = Depends(get_db)):
     workflow_id = str(uuid.uuid4())
-    db_workflow = Workflow(
-        id=workflow_id,
-        name=workflow_spec.name,
-        spec=workflow_spec.dict()
-    )
+    db_workflow = Workflow(id=workflow_id, name=workflow_spec.name, spec=workflow_spec.dict())
     db.add(db_workflow)
     db.commit()
     return {"id": workflow_id, "status": "created"}
 
-import yaml
-from pathlib import Path
 
 WORKFLOWS_DIR = Path("workflows")
+
 
 @app.get("/workflows/")
 async def list_workflows(db: Session = Depends(get_db)):
     # 1. Get from Filesystem (Source of truth for local)
     results = []
     seen_names = set()
-    
+
     if WORKFLOWS_DIR.exists():
         for f in WORKFLOWS_DIR.glob("*.yaml"):
             try:
-                with open(f, 'r') as wf:
+                with open(f) as wf:
                     data = yaml.safe_load(wf)
-                    name = data.get('name', f.name)
+                    name = data.get("name", f.name)
                     # Derive edges for UI if missing
-                    if 'edges' not in data or not data['edges']:
-                        data['edges'] = []
-                        for node in data.get('nodes', []):
-                            for input_ref in node.get('inputs', []):
+                    if "edges" not in data or not data["edges"]:
+                        data["edges"] = []
+                        for node in data.get("nodes", []):
+                            for input_ref in node.get("inputs", []):
                                 source_id = input_ref.split(".")[0]
                                 if source_id != "input":
-                                    data['edges'].append({"source": source_id, "target": node['id']})
-                    
-                    results.append({
-                        "id": f"file:{f.name}",
-                        "name": f"{name} (Local)",
-                        "spec": data,
-                        "source": "file"
-                    })
+                                    data["edges"].append({"source": source_id, "target": node["id"]})
+
+                    results.append({"id": f"file:{f.name}", "name": f"{name} (Local)", "spec": data, "source": "file"})
                     seen_names.add(name)
             except Exception as e:
                 print(f"Error loading {f}: {e}")
-    
+
     # 2. Get from Database (Only if not already seen in filesystem)
     db_workflows = db.query(Workflow).all()
     for w in db_workflows:
         if w.name not in seen_names:
             results.append({"id": w.id, "name": w.name, "spec": w.spec, "source": "db"})
-                
+
     return results
+
 
 @app.get("/workflows/{workflow_id}")
 async def get_workflow(workflow_id: str, db: Session = Depends(get_db)):
@@ -104,33 +98,34 @@ async def get_workflow(workflow_id: str, db: Session = Depends(get_db)):
         filename = workflow_id.replace("file:", "")
         path = WORKFLOWS_DIR / filename
         if path.exists():
-            with open(path, 'r') as f:
+            with open(path) as f:
                 data = yaml.safe_load(f)
                 # Ensure edges are present for UI
-                if 'edges' not in data or not data['edges']:
-                    data['edges'] = []
-                    for node in data.get('nodes', []):
-                        for input_ref in node.get('inputs', []):
+                if "edges" not in data or not data["edges"]:
+                    data["edges"] = []
+                    for node in data.get("nodes", []):
+                        for input_ref in node.get("inputs", []):
                             source_id = input_ref.split(".")[0]
                             if source_id != "input":
-                                data['edges'].append({"source": source_id, "target": node['id']})
+                                data["edges"].append({"source": source_id, "target": node["id"]})
                 return {"id": workflow_id, "name": data.get("name"), "spec": data, "source": "file"}
-    
+
     # Check database
     workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
     if not workflow:
         return {"error": "Workflow not found"}
     return workflow
 
+
 @app.post("/runs/")
-async def run_workflow(workflow_id: str, initial_input: Dict[str, Any], db: Session = Depends(get_db)):
+async def run_workflow(workflow_id: str, initial_input: dict[str, Any], db: Session = Depends(get_db)):
     spec_data = None
-    
+
     if workflow_id.startswith("file:"):
         filename = workflow_id.replace("file:", "")
         path = WORKFLOWS_DIR / filename
         if path.exists():
-            with open(path, 'r') as f:
+            with open(path) as f:
                 spec_data = yaml.safe_load(f)
     else:
         db_workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
@@ -139,21 +134,21 @@ async def run_workflow(workflow_id: str, initial_input: Dict[str, Any], db: Sess
 
     if not spec_data:
         return {"error": "Workflow not found"}
-    
+
     spec = WorkflowSpec(**spec_data)
     runner = WorkflowRunner(spec)
-    
+
     run_id = str(uuid.uuid4())
     db_run = Run(id=run_id, workflow_id=workflow_id, status="running")
     db.add(db_run)
     db.commit()
-    
+
     # Run in background or wait for MVP
     outputs = await runner.run(initial_input)
-    
+
     db_run.status = "completed"
     db_trace = Trace(id=str(uuid.uuid4()), run_id=run_id, events=runner.events)
     db.add(db_trace)
     db.commit()
-    
+
     return {"run_id": run_id, "outputs": outputs}

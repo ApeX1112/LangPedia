@@ -1,19 +1,23 @@
+from typing import Any
+
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+
 
 class NodeSpec(BaseModel):
     id: str
     type: str
-    inputs: List[str] = Field(default_factory=list)
-    params: Dict[str, Any] = Field(default_factory=dict)
-    scripts: Dict[str, str] = Field(default_factory=dict) # Logical name -> file path
+    inputs: list[str] = Field(default_factory=list)
+    params: dict[str, Any] = Field(default_factory=dict)
+    scripts: dict[str, str] = Field(default_factory=dict)  # Logical name -> file path
+
 
 class EdgeSpec(BaseModel):
     source: str
     target: str
 
+
 class WorkflowSpec(BaseModel):
     version: str = "0.1"
     name: str
-    nodes: List[NodeSpec]
-    edges: List[EdgeSpec] = Field(default_factory=list)
+    nodes: list[NodeSpec]
+    edges: list[EdgeSpec] = Field(default_factory=list)
