@@ -1,6 +1,32 @@
 # Langpedia v0.1
 
-All-in-one AI orchestration tool: agents + RAG + MCP tool access.
+<div align="center">
+
+```text
+  _                                    _____          _ _        
+ | |                                  |  __ \        | (_)       
+ | |       __ _ _ __   __ _ _ __   ___| |__) |__  __| |_  __ _   
+ | |      / _` | '_ \ / _` | '_ \ / _ \  ___/ _ \/ _` | |/ _` |  
+ | |____ | (_| | | | | (_| | |_) |  __/ |  |  __/ (_| | | (_| |  
+ |______| \__,_|_| |_|\__, | .__/ \___|_|   \___|\__,_|_|\__,_|  
+                       __/ | |                                   
+                      |___/|_|                                   
+```
+
+### **AI Orchestration • Agents • RAG • MCP • Workflows**
+
+
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Next.js](https://img.shields.io/badge/Next.js-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org)
+
+---
+
+**LangPedia** is a professional-grade AI orchestration platform that bridges the gap between local development and complex AI agent deployments. Build, visualize, and run advanced RAG pipelines and autonomous agents with a local-first philosophy.
+
+
+
+</div>
 
 ## Structure
 
