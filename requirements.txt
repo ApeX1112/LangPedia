@@ -42,3 +42,6 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 urllib3==2.6.3
 uvicorn==0.41.0
+
+
+git commit -m "feat: add project infrastructure - clean install scripts, pre-commit hooks, CI pipeline, test suite, and docs"

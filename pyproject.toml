@@ -16,12 +16,39 @@ dependencies = [
     "rich",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+    "pre-commit>=3.6",
+    "ruff>=0.9",
+]
+
 [project.scripts]
 langpedia = "cli.langpedia.main:app"
 
-[tool.setuptools]
-packages = ["backend", "cli", "shared", "cli.langpedia", "backend.app"]
+[tool.setuptools.packages.find]
+include = ["backend*", "cli*", "shared*"]
+exclude = ["studio*", "tests*"]
 
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
+
+# ── Ruff ─────────────────────────────────────────────────────────────────
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["backend", "cli", "shared"]
+
+# ── Pytest ───────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
