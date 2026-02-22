@@ -55,12 +55,15 @@ class WorkflowRunner:
         total_nodes = len(self.spec.nodes)
         wf_start = time.time()
 
-        self.emit("workflow_start", {
-            "name": self.spec.name,
-            "version": self.spec.version,
-            "total_nodes": total_nodes,
-            "input": initial_input,
-        })
+        self.emit(
+            "workflow_start",
+            {
+                "name": self.spec.name,
+                "version": self.spec.version,
+                "total_nodes": total_nodes,
+                "input": initial_input,
+            },
+        )
 
         executed_nodes = set()
         to_execute = list(self.spec.nodes)
@@ -79,13 +82,16 @@ class WorkflowRunner:
                 if can_run:
                     node_index += 1
                     node_info = NODE_INFO.get(node.type, {})
-                    self.emit("node_start", {
-                        "node_id": node.id,
-                        "node_type": node.type,
-                        "node_index": node_index,
-                        "total_nodes": total_nodes,
-                        "description": node_info.get("description", node.type),
-                    })
+                    self.emit(
+                        "node_start",
+                        {
+                            "node_id": node.id,
+                            "node_type": node.type,
+                            "node_index": node_index,
+                            "total_nodes": total_nodes,
+                            "description": node_info.get("description", node.type),
+                        },
+                    )
 
                     node_start = time.time()
                     await self.execute_node(node)
@@ -97,23 +103,35 @@ class WorkflowRunner:
                     if has_error:
                         self.emit("node_error", {"node_id": node.id, "error": str(output.get("error"))})
                     else:
-                        self.emit("node_complete", {"node_id": node.id, "elapsed": elapsed, "output_keys": list(output.keys()) if isinstance(output, dict) else []})
+                        self.emit(
+                            "node_complete",
+                            {
+                                "node_id": node.id,
+                                "elapsed": elapsed,
+                                "output_keys": list(output.keys()) if isinstance(output, dict) else [],
+                            },
+                        )
 
                     executed_nodes.add(node.id)
                     to_execute.remove(node)
                     made_progress = True
 
             if not made_progress and to_execute:
-                self.emit("node_error", {"node_id": "deadlock", "error": f"Cannot execute: {[n.id for n in to_execute]}"})
+                self.emit(
+                    "node_error", {"node_id": "deadlock", "error": f"Cannot execute: {[n.id for n in to_execute]}"}
+                )
                 break
 
         wf_elapsed = time.time() - wf_start
-        self.emit("workflow_end", {
-            "name": self.spec.name,
-            "elapsed": wf_elapsed,
-            "total_executed": len(executed_nodes),
-            "total_nodes": total_nodes,
-        })
+        self.emit(
+            "workflow_end",
+            {
+                "name": self.spec.name,
+                "elapsed": wf_elapsed,
+                "total_executed": len(executed_nodes),
+                "total_nodes": total_nodes,
+            },
+        )
         return self.node_outputs
 
     async def execute_node(self, node: NodeSpec):
@@ -137,7 +155,10 @@ class WorkflowRunner:
                 node_instance._runner_emit = self.emit
                 output = await node_instance.execute(input_data)
             else:
-                self.emit("node_log", {"node_id": node.id, "message": f"No implementation for '{node.type}', using placeholder."})
+                self.emit(
+                    "node_log",
+                    {"node_id": node.id, "message": f"No implementation for '{node.type}', using placeholder."},
+                )
                 await asyncio.sleep(0.5)
                 output = {"status": "success", "message": f"Placeholder output for {node.id}"}
         except Exception as e:

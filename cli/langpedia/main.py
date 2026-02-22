@@ -270,7 +270,7 @@ def run(
             "workflow_version": "",
             "total_nodes": 0,
             "input": input_data,
-            "nodes": [],          # list of node display dicts
+            "nodes": [],  # list of node display dicts
             "current_node": None,  # index of active node
             "finished": False,
             "elapsed": 0,
@@ -315,7 +315,6 @@ def run(
                 if node.get("description"):
                     type_line.append(f" ({node['description']})", style="italic dim")
                 lines.append(type_line)
-
 
                 # Step progress
                 if node.get("steps"):
@@ -438,7 +437,10 @@ def run(
                     # Mark all remaining steps as done
                     for s in node["steps"]:
                         if s not in node["step_status"] or node["step_status"][s]["state"] != "done":
-                            node["step_status"][s] = {"state": "done", "detail": node["step_status"].get(s, {}).get("detail", "")}
+                            node["step_status"][s] = {
+                                "state": "done",
+                                "detail": node["step_status"].get(s, {}).get("detail", ""),
+                            }
                     display_state["success_count"] += 1
 
             elif event_type == "node_error":
@@ -456,11 +458,13 @@ def run(
         runner = WorkflowRunner(spec, on_event=on_event)
 
         with Live(build_display(), console=console, refresh_per_second=8, transient=False) as live:
+
             async def run_with_live():
                 outputs = await runner.run(input_data)
                 return outputs
 
             import threading
+
             result_holder = [None]
             error_holder = [None]
 
