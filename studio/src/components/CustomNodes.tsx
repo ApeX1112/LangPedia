@@ -4,7 +4,7 @@ import { Bot, Repeat, Scale } from 'lucide-react';
 
 export function ConditionNode({ data }: NodeProps) {
     const isRunning = data.isRunning as boolean;
-    const payload = data.payload as any;
+    const payload = data.payload as unknown;
 
     return (
         <div className={`bg-white border-2 ${isRunning ? 'border-yellow-400 shadow-yellow-200 shadow-lg' : 'border-indigo-200'} rounded-lg shadow-sm min-w-[200px] overflow-hidden transition-all duration-300`}>
@@ -16,7 +16,7 @@ export function ConditionNode({ data }: NodeProps) {
             </div>
             <div className="px-3 py-3 text-xs text-slate-500 bg-slate-50 flex flex-col gap-2">
                 <span>Evaluates and branches based on logic</span>
-                {payload && (
+                {!!payload && (
                     <div className="mt-2 bg-slate-900 text-green-400 p-2 rounded text-[10px] font-mono overflow-auto max-w-full max-h-32">
                         {JSON.stringify(payload, null, 2)}
                     </div>
@@ -51,7 +51,7 @@ export function ConditionNode({ data }: NodeProps) {
 // Simple stylistic LLM/Agent node to replace the 'default' string
 export function StandardNode({ data }: NodeProps) {
     const isRunning = data.isRunning as boolean;
-    const payload = data.payload as any;
+    const payload = data.payload as unknown;
 
     return (
         <div className={`bg-white border-2 ${isRunning ? 'border-yellow-400 shadow-yellow-200 shadow-lg' : 'border-slate-200'} rounded-lg shadow-sm min-w-[200px] overflow-hidden transition-all duration-300`}>
@@ -61,7 +61,7 @@ export function StandardNode({ data }: NodeProps) {
                     <span className="font-semibold text-sm text-slate-900">{String(data.label || 'Node')}</span>
                 </div>
             </div>
-            {payload && (
+            {!!payload && (
                 <div className="px-3 py-2 bg-slate-50 border-t border-slate-100">
                     <div className="bg-slate-900 text-green-400 p-2 rounded text-[10px] font-mono overflow-auto max-w-full max-h-48">
                         {JSON.stringify(payload, null, 2)}

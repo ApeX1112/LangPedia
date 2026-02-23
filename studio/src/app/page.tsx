@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import WorkflowCanvas from '@/components/WorkflowCanvas';
-import { Play, Save, Plus, Database, Activity, Layout } from 'lucide-react';
+import { Layout, Save, Play, RefreshCw, Activity, Database, Plus } from 'lucide-react';
 import axios from 'axios';
 import { useNodesState, useEdgesState, addEdge, Connection, Edge, Node } from '@xyflow/react';
 
@@ -126,7 +126,7 @@ export default function Home() {
   };
 
   const [runningNodeId, setRunningNodeId] = useState<string | null>(null);
-  const [nodePayloads, setNodePayloads] = useState<Record<string, any>>({});
+  const [nodePayloads, setNodePayloads] = useState<Record<string, unknown>>({});
   const [isExecuting, setIsExecuting] = useState(false);
 
   // When node payloads or running status changes, we need to update our React Flow `nodes` array 
@@ -228,9 +228,15 @@ export default function Home() {
           </button>
           <button
             onClick={runWorkflow}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors cursor-pointer shadow-lg active:scale-95"
+            disabled={isExecuting}
+            className={`flex items-center gap-2 px-4 py-2 ${isExecuting ? 'bg-slate-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 active:scale-95'} text-white rounded-md transition-colors shadow-lg`}
           >
-            <Play className="w-4 h-4" /> Run
+            {isExecuting ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : (
+              <Play className="w-4 h-4" />
+            )}
+            {isExecuting ? 'Running...' : 'Run'}
           </button>
         </div>
       </header>
