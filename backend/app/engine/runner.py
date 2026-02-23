@@ -66,18 +66,60 @@ class WorkflowRunner:
         )
 
         executed_nodes = set()
-        to_execute = list(self.spec.nodes)
+        skipped_nodes = set()
+        
+        # Only execute top-level nodes initially (nodes without a parent)
+        to_execute = [n for n in self.spec.nodes if not n.parent]
         node_index = 0
 
         while to_execute:
             made_progress = False
             for node in list(to_execute):
                 can_run = True
+                should_skip = False
+                
+                # Check dependencies
                 for input_ref in node.inputs:
-                    source_node_id = input_ref.split(".")[0]
+                    parts = input_ref.split(".")
+                    source_node_id = parts[0]
+                    field = parts[1] if len(parts) > 1 else None
+                    
+                    if source_node_id in skipped_nodes:
+                        # If our dependency was skipped, we must skip too
+                        should_skip = True
+                        break
+                        
                     if source_node_id not in self.node_outputs and source_node_id != "input":
                         can_run = False
                         break
+                        
+                    if source_node_id in self.node_outputs:
+                        # Check explicit branch conditions inside inputs e.g., `condition_node.true`
+                        # If the output explicitly emitted a `branch` and we requested a specifically mismatched field, skip it.
+                        out = self.node_outputs[source_node_id]
+                        if isinstance(out, dict) and "branch" in out and field is not None:
+                            if out["branch"] != field:
+                                should_skip = True
+                                break
+                        
+                if should_skip:
+                    # Also cascade skip to children if we skipped a container
+                    nodes_to_skip = [node.id]
+                    for spec_node in self.spec.nodes:
+                        if spec_node.parent == node.id:
+                            nodes_to_skip.append(spec_node.id)
+                            
+                    for skip_id in nodes_to_skip:
+                        skipped_nodes.add(skip_id)
+                        if any(n.id == skip_id for n in to_execute):
+                            to_execute = [n for n in to_execute if n.id != skip_id]
+                            self.emit("node_log", {
+                                "node_id": skip_id, 
+                                "message": f"Skipped due to unfulfilled branch condition."
+                            })
+                            
+                    made_progress = True
+                    continue
 
                 if can_run:
                     node_index += 1
@@ -94,11 +136,43 @@ class WorkflowRunner:
                     )
 
                     node_start = time.time()
-                    await self.execute_node(node)
+                    
+                    # If this is a loop node, we need to pass its children down to it
+                    if node.type == "loop":
+                        child_nodes = [n for n in self.spec.nodes if n.parent == node.id]
+                        await self.execute_node(node, child_nodes=child_nodes)
+                    else:
+                        await self.execute_node(node)
+                        
                     elapsed = time.time() - node_start
 
                     output = self.node_outputs.get(node.id, {})
                     has_error = "error" in output
+                    
+                    # Branch Skipping Logic based on Edge Spec
+                    branch = output.get("branch") if isinstance(output, dict) else None
+                    if branch is not None:
+                        # Find all edges originating from this node
+                        out_edges = [e for e in self.spec.edges if e.source == node.id]
+                        for edge in out_edges:
+                            # If an edge explicitly requires a branch (`sourceHandle`), and we didn't output it
+                            if edge.sourceHandle and edge.sourceHandle != branch:
+                                # Mark the downstream target node as skipped
+                                nodes_to_skip = [edge.target]
+                                
+                                # Cascade skip down to any child nodes (e.g., inside a skipped loop)
+                                for spec_node in self.spec.nodes:
+                                    if spec_node.parent == edge.target:
+                                        nodes_to_skip.append(spec_node.id)
+                                        
+                                for skip_id in nodes_to_skip:
+                                    skipped_nodes.add(skip_id)
+                                    # Immediately remove the skipped node from the execution queue if it's there
+                                    to_execute = [n for n in to_execute if n.id != skip_id]
+                                    self.emit("node_log", {
+                                        "node_id": skip_id, 
+                                        "message": f"Preemptively skipped because '{node.id}' branched to '{branch}' instead of '{edge.sourceHandle}'."
+                                    })
 
                     if has_error:
                         self.emit("node_error", {"node_id": node.id, "error": str(output.get("error"))})
@@ -113,7 +187,8 @@ class WorkflowRunner:
                         )
 
                     executed_nodes.add(node.id)
-                    to_execute.remove(node)
+                    if node in to_execute:
+                        to_execute.remove(node)
                     made_progress = True
 
             if not made_progress and to_execute:
@@ -121,7 +196,7 @@ class WorkflowRunner:
                     "node_error", {"node_id": "deadlock", "error": f"Cannot execute: {[n.id for n in to_execute]}"}
                 )
                 break
-
+                
         wf_elapsed = time.time() - wf_start
         self.emit(
             "workflow_end",
@@ -129,12 +204,13 @@ class WorkflowRunner:
                 "name": self.spec.name,
                 "elapsed": wf_elapsed,
                 "total_executed": len(executed_nodes),
+                "total_skipped": len(skipped_nodes),
                 "total_nodes": total_nodes,
             },
         )
         return self.node_outputs
 
-    async def execute_node(self, node: NodeSpec):
+    async def execute_node(self, node: NodeSpec, child_nodes: list[NodeSpec] = None):
         # Prepare inputs for the node
         input_data = {}
         for input_ref in node.inputs:
@@ -143,6 +219,13 @@ class WorkflowRunner:
             field = parts[1] if len(parts) > 1 else None
 
             source_output = self.node_outputs.get(source_id, {})
+            
+            # CONDITION CHECK LOGIC:
+            # If the user required `condition_node.true` but condition output `branch` is `false`,
+            # we should technically halt, but the runner loops handled skip logic above.
+            # To be robust, if the node requests a specific branch and the state says otherwise,
+            # we could raise an error, but for simplicity we'll just pass the data.
+            
             if field:
                 input_data[field] = source_output.get(field)
             else:
@@ -153,6 +236,11 @@ class WorkflowRunner:
                 node_instance = NODE_REGISTRY[node.type](node, self.events, self.workflow_name)
                 # Inject the runner's emit function so nodes can emit step events
                 node_instance._runner_emit = self.emit
+                
+                # Inject child nodes if requested (for loop container)
+                if child_nodes is not None and hasattr(node_instance, "set_children"):
+                    node_instance.set_children(child_nodes)
+                    
                 output = await node_instance.execute(input_data)
             else:
                 self.emit(

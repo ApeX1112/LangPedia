@@ -11,11 +11,15 @@ interface WorkflowNodeSpec {
   type: string;
   inputs?: string[];
   params?: Record<string, unknown>;
+  parent?: string;
 }
 
 interface WorkflowEdgeSpec {
   source: string;
   target: string;
+  sourceHandle?: string;
+  targetHandle?: string;
+  label?: string;
 }
 
 interface WorkflowSpec {
@@ -43,18 +47,35 @@ export default function Home() {
   const loadWorkflow = useCallback((wf: WorkflowItem) => {
     setActiveWorkflowId(wf.id);
     const spec = wf.spec;
-    const newNodes: Node[] = spec.nodes.map((n: WorkflowNodeSpec, i: number) => ({
-      id: n.id,
-      position: { x: 100, y: 100 + i * 150 },
-      data: { label: `${n.id} (${n.type})` },
-      type: n.type === 'input' ? 'input' : 'default'
-    }));
+    const newNodes: Node[] = spec.nodes.map((n: WorkflowNodeSpec, i: number) => {
+      const isLoop = n.type === 'loop';
+      const isCondition = n.type === 'condition';
+      const isChild = !!n.parent;
+
+      let typeStr = 'default';
+      if (isLoop) typeStr = 'loop';
+      if (isCondition) typeStr = 'condition';
+
+      return {
+        id: n.id,
+        // Calculate dynamic relative or absolute positions
+        position: isChild ? { x: 20, y: 50 + (i * 80) } : { x: 100, y: 100 + (i * 150) },
+        data: { label: `${n.id} (${n.type})` },
+        type: typeStr,
+        parentId: n.parent, // Assign parent ID for React Flow container groups
+        extent: isChild ? 'parent' : undefined, // Keep child inside parent visually
+      };
+    });
     setNodes(newNodes);
 
     const newEdges: Edge[] = spec.edges.map((e: WorkflowEdgeSpec) => ({
-      id: `e-${e.source}-${e.target}`,
+      id: `e-${e.source}-${e.target}-${e.sourceHandle || ''}`,
       source: e.source,
-      target: e.target
+      target: e.target,
+      sourceHandle: e.sourceHandle,
+      label: e.label || (e.sourceHandle ? e.sourceHandle.toUpperCase() : undefined),
+      animated: true,
+      style: { stroke: e.sourceHandle === 'true' ? '#22c55e' : e.sourceHandle === 'false' ? '#ef4444' : '#94a3b8', strokeWidth: 2 }
     }));
     setEdges(newEdges);
   }, [setNodes, setEdges]);
@@ -104,16 +125,88 @@ export default function Home() {
     }
   };
 
+  const [runningNodeId, setRunningNodeId] = useState<string | null>(null);
+  const [nodePayloads, setNodePayloads] = useState<Record<string, any>>({});
+  const [isExecuting, setIsExecuting] = useState(false);
+
+  // When node payloads or running status changes, we need to update our React Flow `nodes` array 
+  // so the CustomNodes can consume this data via their `data` prop.
+  useEffect(() => {
+    setNodes((nds) =>
+      nds.map((n) => ({
+        ...n,
+        data: {
+          ...n.data,
+          isRunning: n.id === runningNodeId,
+          payload: nodePayloads[n.id] || null
+        }
+      }))
+    );
+  }, [runningNodeId, nodePayloads, setNodes]);
+
   const runWorkflow = async () => {
     if (!activeWorkflowId) return;
+    setIsExecuting(true);
+    setRunningNodeId(null);
+    setNodePayloads({});
+
     try {
-      const res = await axios.post(`${API_BASE}/runs/`, {
-        workflow_id: activeWorkflowId,
-        initial_input: { text: "Hello from UI" }
+      const response = await fetch(`${API_BASE}/runs/stream?workflow_id=${activeWorkflowId}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'text/event-stream'
+        }
       });
-      alert(`Run started! ID: ${res.data.run_id}`);
-    } catch {
-      alert("Run failed.");
+
+      if (!response.body) throw new Error("No response body");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process SSE delineated by double newlines
+        const events = buffer.split('\n\n');
+        buffer = events.pop() || ''; // keep the last incomplete chunk
+
+        for (const event of events) {
+          if (event.startsWith('data: ')) {
+            const jsonStr = event.slice(6); // remove 'data: '
+            try {
+              const payload = JSON.parse(jsonStr);
+              const { type, data } = payload;
+              console.log("Stream event:", type, data);
+
+              if (type === 'node_start') {
+                setRunningNodeId(data.node_id);
+              } else if (type === 'node_complete' || type === 'node_error') {
+                setRunningNodeId(null);
+              } else if (type === 'node_visualize') {
+                setNodePayloads(prev => ({
+                  ...prev,
+                  [data.node_id]: data.payload
+                }));
+              } else if (type === 'workflow_end' || type === 'workflow_error') {
+                setIsExecuting(false);
+                setRunningNodeId(null);
+                alert(`Execution complete. Time: ${data.elapsed?.toFixed(2) || '0'}s`);
+                return; // end stream reading
+              }
+            } catch (e) {
+              console.error("Parse error on stream chunk", e, jsonStr);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Stream failed:", err);
+      setIsExecuting(false);
+      setRunningNodeId(null);
     }
   };
 

@@ -20,6 +20,10 @@ class NodeContext:
             }
         )
 
+    def visualize(self, payload: dict[str, Any]):
+        """Emit a powerful ui visualization object for Studio Live updates."""
+        self.emit("node_visualize", payload)
+
 
 class NodeScript(ABC):
     def validate(self, config: dict[str, Any]) -> None:

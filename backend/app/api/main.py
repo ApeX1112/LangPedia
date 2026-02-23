@@ -1,3 +1,5 @@
+import asyncio
+import json
 import os
 import sys
 import uuid
@@ -6,8 +8,9 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
@@ -29,8 +32,8 @@ app = FastAPI(title="Langpedia API", version="0.1", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For v0.1 MVP, allow all origins
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_headers=["*"],
     allow_methods=["*"],
 )
@@ -122,6 +125,9 @@ async def get_workflow(workflow_id: str, db: Session = Depends(get_db)):
     return workflow
 
 
+from fastapi.responses import StreamingResponse
+import json
+
 @app.post("/runs/")
 async def run_workflow(workflow_id: str, initial_input: dict[str, Any], db: Session = Depends(get_db)):
     spec_data = None
@@ -157,3 +163,72 @@ async def run_workflow(workflow_id: str, initial_input: dict[str, Any], db: Sess
     db.commit()
 
     return {"run_id": run_id, "outputs": outputs}
+
+# Removed manual OPTIONS handler as CORSMiddleware handles pre-flight requests automatically.
+
+@app.get("/runs/stream")
+async def stream_workflow(request: Request, workflow_id: str, db: Session = Depends(get_db)):
+    spec_data = None
+    if workflow_id.startswith("file:"):
+        filename = workflow_id.replace("file:", "")
+        path = WORKFLOWS_DIR / filename
+        if path.exists():
+            with open(path) as f:
+                spec_data = yaml.safe_load(f)
+    else:
+        db_workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
+        if db_workflow:
+            spec_data = db_workflow.spec
+
+    if not spec_data:
+        return {"error": "Workflow not found"}
+
+    queue = asyncio.Queue()
+
+    def stream_event_handler(event_type: str, data: dict[str, Any]):
+        queue.put_nowait({"type": event_type, "data": data})
+
+    spec = WorkflowSpec(**spec_data)
+    runner = WorkflowRunner(spec, on_event=stream_event_handler)
+
+    async def event_generator():
+        # Start execution in the background
+        execution_task = asyncio.create_task(runner.run({}))
+        
+        try:
+            while True:
+                # Wait for next event or completion of the runner task
+                event_task = asyncio.create_task(queue.get())
+                done, pending = await asyncio.wait(
+                    [event_task, execution_task],
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+                
+                if await request.is_disconnected():
+                    break
+                    
+                if event_task in done:
+                    event = event_task.result()
+                    yield f"data: {json.dumps(event)}\n\n"
+                    # Exit loop if it's the final event
+                    if event["type"] in ["workflow_end", "workflow_error"]:
+                        break
+                elif execution_task in done:
+                    # Runner finished but might have flushed final events to queue
+                    if not queue.empty():
+                        while not queue.empty():
+                            event = queue.get_nowait()
+                            yield f"data: {json.dumps(event)}\n\n"
+                    break
+        finally:
+            execution_task.cancel()
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+        }
+    )

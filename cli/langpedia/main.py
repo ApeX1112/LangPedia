@@ -128,11 +128,11 @@ def init(name: str = typer.Argument("my-langpedia-project", help="The name of yo
 
 @app.command()
 def generate_scripts(
-    node_id: str | None = typer.Argument(
-        None, help="The ID of the node to generate scripts for. If omitted, generates for all nodes."
+    workflow_path: str = typer.Option(
+        None, "--workflow", "-w", help="Path to the workflow YAML file. If omitted, uses the 'connected' workflow."
     ),
-    workflow_path: str | None = typer.Argument(
-        None, help="Path to the workflow YAML file. If omitted, uses the 'connected' workflow."
+    node_id: str | None = typer.Option(
+        None, "--node", "-n", help="The ID of the node to generate scripts for. If omitted, generates for all nodes."
     ),
 ):
     """Generate boilerplate scripts for nodes in a workflow."""
@@ -192,7 +192,7 @@ def generate_scripts(
                 }
             elif ntype == "condition":
                 scripts_content = {
-                    "condition.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Evaluator(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Evaluate a condition."""\n        print("Running condition check...")\n        state["condition_met"] = True\n        return state\n',
+                    "condition.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Evaluator(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Evaluate a condition."""\n        print("Running condition check...")\n        # Output `true` or `false` to dictate which downstream nodes execute\n        state["branch"] = "true"\n        return state\n',
                 }
             elif ntype == "loop":
                 scripts_content = {
