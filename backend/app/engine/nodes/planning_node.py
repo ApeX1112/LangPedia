@@ -1,5 +1,7 @@
 from typing import Any
+
 from .scriptable import ScriptableNode
+
 
 class PlanningNode(ScriptableNode):
     async def execute(self, input_data: dict[str, Any]) -> dict[str, Any]:

@@ -1,10 +1,10 @@
-from .base import BaseNode
-from .rag_node import RAGRetrieveNode
-from .planning_node import PlanningNode
-from .thinking_node import ThinkingNode
 from .advanced_rag_node import AdvancedRAGNode
+from .base import BaseNode
 from .condition_node import ConditionNode
 from .loop_node import LoopNode
+from .planning_node import PlanningNode
+from .rag_node import RAGRetrieveNode
+from .thinking_node import ThinkingNode
 
 NODE_REGISTRY: dict[str, type[BaseNode]] = {
     "rag_retrieve": RAGRetrieveNode,

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -125,9 +125,6 @@ async def get_workflow(workflow_id: str, db: Session = Depends(get_db)):
     return workflow
 
 
-from fastapi.responses import StreamingResponse
-import json
-
 @app.post("/runs/")
 async def run_workflow(workflow_id: str, initial_input: dict[str, Any], db: Session = Depends(get_db)):
     spec_data = None
@@ -164,7 +161,9 @@ async def run_workflow(workflow_id: str, initial_input: dict[str, Any], db: Sess
 
     return {"run_id": run_id, "outputs": outputs}
 
+
 # Removed manual OPTIONS handler as CORSMiddleware handles pre-flight requests automatically.
+
 
 @app.get("/runs/stream")
 async def stream_workflow(request: Request, workflow_id: str, db: Session = Depends(get_db)):
@@ -194,19 +193,16 @@ async def stream_workflow(request: Request, workflow_id: str, db: Session = Depe
     async def event_generator():
         # Start execution in the background
         execution_task = asyncio.create_task(runner.run({}))
-        
+
         try:
             while True:
                 # Wait for next event or completion of the runner task
                 event_task = asyncio.create_task(queue.get())
-                done, pending = await asyncio.wait(
-                    [event_task, execution_task],
-                    return_when=asyncio.FIRST_COMPLETED
-                )
-                
+                done, pending = await asyncio.wait([event_task, execution_task], return_when=asyncio.FIRST_COMPLETED)
+
                 if await request.is_disconnected():
                     break
-                    
+
                 if event_task in done:
                     event = event_task.result()
                     yield f"data: {json.dumps(event)}\n\n"
@@ -230,5 +226,5 @@ async def stream_workflow(request: Request, workflow_id: str, db: Session = Depe
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "Access-Control-Allow-Origin": "*",
-        }
+        },
     )

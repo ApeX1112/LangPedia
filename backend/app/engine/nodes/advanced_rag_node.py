@@ -1,7 +1,9 @@
-from typing import Any
 from pathlib import Path
-from .scriptable import ScriptableNode
+from typing import Any
+
 from .base import NodeContext
+from .scriptable import ScriptableNode
+
 
 class AdvancedRAGNode(ScriptableNode):
     async def execute(self, input_data: dict[str, Any]) -> dict[str, Any]:
@@ -23,17 +25,17 @@ class AdvancedRAGNode(ScriptableNode):
 
         for step_name, script_path_str in scripts.items():
             script_path = Path(script_path_str)
-            
+
             if step_name == "reflect":
                 # Special handler for 'reflect' step supporting self-reflection RAG / CRAG
                 while reflection_count < max_reflections:
                     self.emit_step(step_name, "Reflecting...")
                     state, log_text = await self._run_script(ctx, script_path, state, config)
-                    
+
                     if state.get("reflection_passed", True):
                         self.emit_step(step_name, log_text or "Passed reflection")
                         break
-                    
+
                     reflection_count += 1
                     self.emit_step(step_name, f"Reflecting ({reflection_count}/{max_reflections})...")
             else:

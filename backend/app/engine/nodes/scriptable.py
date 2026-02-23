@@ -6,6 +6,7 @@ from typing import Any
 
 from .base import BaseNode, NodeContext, NodeScript
 
+
 class ScriptableNode(BaseNode):
     def _discover_scripts(self) -> dict[str, str]:
         """Fallback: discover scripts from organized path."""
