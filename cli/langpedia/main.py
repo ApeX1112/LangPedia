@@ -162,15 +162,42 @@ def generate_scripts(
         nid = node.get("id")
         ntype = node.get("type")
 
-        if ntype == "rag_retrieve":
+        supported_types = ["rag_retrieve", "planning", "thinking", "advanced_rag", "condition", "loop"]
+        if ntype in supported_types:
             target_dir = Path("scripts") / "workflows" / workflow_name / "nodes" / nid
             target_dir.mkdir(parents=True, exist_ok=True)
 
-            scripts_content = {
-                "extract.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Extractor(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Custom extraction logic."""\n        dataset_path = state.get("dataset_path")\n        ctx.emit("extract_start", {"path": dataset_path})\n        print(f"Extracting from {dataset_path}...")\n        return {"docs": ["Doc 1", "Doc 2"]}\n',
-                "vectorize.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Vectorizer(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Custom vectorization logic."""\n        docs = state.get("docs", [])\n        ctx.emit("vectorize_docs", {"count": len(docs)})\n        print(f"Vectorizing {len(docs)} documents...")\n        return state\n',
-                "store.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Searcher(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Custom search logic."""\n        query = state.get("query")\n        top_k = state.get("top_k", 5)\n        print(f"Searching for: {query} (top_k={top_k})")\n        return {"results": [f"Result for {query}"]}\n',
-            }
+            scripts_content = {}
+            if ntype == "rag_retrieve":
+                scripts_content = {
+                    "extract.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Extractor(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Custom extraction logic."""\n        dataset_path = state.get("dataset_path")\n        ctx.emit("extract_start", {"path": dataset_path})\n        print(f"Extracting from {dataset_path}...")\n        return {"docs": ["Doc 1", "Doc 2"]}\n',
+                    "vectorize.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Vectorizer(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Custom vectorization logic."""\n        docs = state.get("docs", [])\n        ctx.emit("vectorize_docs", {"count": len(docs)})\n        print(f"Vectorizing {len(docs)} documents...")\n        return state\n',
+                    "store.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Searcher(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Custom search logic."""\n        query = state.get("query")\n        top_k = state.get("top_k", 5)\n        print(f"Searching for: {query} (top_k={top_k})")\n        return {"results": [f"Result for {query}"]}\n',
+                }
+            elif ntype == "planning":
+                scripts_content = {
+                    "analyze.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Analyzer(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Analyze input for planning."""\n        print("Analyzing input for planning...")\n        return state\n',
+                    "plan.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Planner(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Create a plan."""\n        print("Creating plan...")\n        state["plan"] = ["step 1", "step 2"]\n        return state\n',
+                }
+            elif ntype == "thinking":
+                scripts_content = {
+                    "reason.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Reasoner(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Reason about the context."""\n        print("Reasoning about context...")\n        return state\n',
+                    "conclude.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Concluder(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Draw conclusions."""\n        print("Drawing conclusions...")\n        state["conclusion"] = "Thought process complete."\n        return state\n',
+                }
+            elif ntype == "advanced_rag":
+                scripts_content = {
+                    "retrieve.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Retriever(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Agentic retrieval logic."""\n        print("Agentic retrieval based on query...")\n        state["retrieved_docs"] = ["Doc A", "Doc B"]\n        return state\n',
+                    "reflect.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Reflector(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Self-reflecting on retrieved docs (CRAG)."""\n        print("Evaluating retrieved content...")\n        # Contextual check logic here; set False to retry retrieve if needed in some architectures\n        state["reflection_passed"] = True\n        return state\n',
+                    "generate.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Generator(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Generate response based on reflection."""\n        print("Generating final RAG output...")\n        state["rag_response"] = "The answer based on agentic retrieval."\n        return state\n',
+                }
+            elif ntype == "condition":
+                scripts_content = {
+                    "condition.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass Evaluator(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Evaluate a condition."""\n        print("Running condition check...")\n        state["condition_met"] = True\n        return state\n',
+                }
+            elif ntype == "loop":
+                scripts_content = {
+                    "loop_body.py": 'from backend.app.engine.nodes.base import NodeScript, NodeContext\n\nclass LoopBody(NodeScript):\n    def run(self, ctx: NodeContext, state: dict, config: dict) -> dict:\n        """Execute an iteration."""\n        print("Executing loop body...")\n        # Set loop_break = True to exit early if condition met\n        state["loop_break"] = False\n        state["items_processed"] = state.get("items_processed", 0) + 1\n        return state\n',
+                }
 
             mappings = {}
             for filename, content in scripts_content.items():
@@ -183,7 +210,7 @@ def generate_scripts(
                         f.write(content)
                     console.print(f"  [green]✔[/green] Created [bold]{file_path}[/bold]")
 
-            console.print(f"  [green]✔[/green] Generated RAG scripts for node [bold]{nid}[/bold]")
+            console.print(f"  [green]✔[/green] Generated [bold]{ntype}[/bold] scripts for node [bold]{nid}[/bold]")
             return mappings
         return None
 
